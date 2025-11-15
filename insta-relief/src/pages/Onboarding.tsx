@@ -157,7 +157,7 @@ export default function OnboardingPage() {
             <Button
               fullWidth
               variant="outlined"
-              onClick={() => navigate("/")}
+              onClick={() => navigate("/login")}
               sx={{ borderRadius: 2 }}
             >
               Already have an account? Login
