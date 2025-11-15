@@ -6,6 +6,7 @@ import LoginPage from "../src/pages/Login";
 import OnboardingPage from "../src/pages/Onboarding";
 import DashboardPage from "../src/pages/Dashboard";
 import AdminLogin from "../src/pages/AdminLogin";
+import AdminDashboard from "./pages/AdminDashboard";
 
 export default function App() {
   return (
@@ -16,7 +17,8 @@ export default function App() {
           <Route path="/" element={<LoginPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/" element={<AdminLogin />} />
+          <Route path="/admin/dashboard" element={<AdminDashboard />} />
 
         </Routes>
       </BrowserRouter>
