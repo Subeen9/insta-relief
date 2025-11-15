@@ -21,18 +21,31 @@ export default function OnboardingPage() {
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [zip, setZip] = useState("");
+  const [walletAddress, setWalletAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  const validateWalletAddress = (address: string): boolean => {
+    if (address.length < 32 || address.length > 44) {
+      return false;
+    }
+    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+    return base58Regex.test(address);
+  };
+
   const handleSignUp = async () => {
-    if (!firstName || !lastName || !email || !password || !phone || !zip) {
+    if (!firstName || !lastName || !email || !password || !phone || !zip || !walletAddress) {
       alert("Please fill all fields.");
+      return;
+    }
+
+    if (!validateWalletAddress(walletAddress)) {
+      alert("Invalid Solana wallet address. Please check and try again.");
       return;
     }
 
     setLoading(true);
     try {
-      // format phone (optional)
       const formattedPhone = phone.trim().replace(/\D/g, "");
 
       const userCredential = await createUserWithEmailAndPassword(
@@ -50,6 +63,7 @@ export default function OnboardingPage() {
         email,
         phone: formattedPhone,
         zip,
+        walletAddress,
         policyId,
         isActivated: true,
         status: "ACTIVE",
@@ -120,6 +134,14 @@ export default function OnboardingPage() {
               fullWidth
               value={zip}
               onChange={(e) => setZip(e.target.value)}
+            />
+            <TextField
+              label="Solana Wallet Address (Devnet)"
+              fullWidth
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value)}
+              placeholder="e.g., FiRnroaThU3w642sKZnNj84xW5b3J2nJCLhV3W3oxy9d"
+              helperText="Your Solana Devnet wallet address where you'll receive payouts"
             />
 
             <Button
