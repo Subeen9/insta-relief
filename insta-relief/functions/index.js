@@ -4,16 +4,16 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 
 // Emulator setup
-if (process.env.FIREBASE_EMULATOR_HUB) {
-  process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8094";
-  console.log("Connected Firestore to local emulator on 127.0.0.1:8094");
-}
+// if (process.env.FIREBASE_EMULATOR_HUB) {
+//   process.env.FIRESTORE_EMULATOR_HOST = "127.0.0.1:8094";
+//   console.log("Connected Firestore to local emulator on 127.0.0.1:8094");
+// }
 
 const db = admin.firestore();
 
-if (process.env.FIRESTORE_EMULATOR_HOST) {
-  db.settings({ host: process.env.FIRESTORE_EMULATOR_HOST, ssl: false });
-}
+// if (process.env.FIRESTORE_EMULATOR_HOST) {
+//   db.settings({ host: process.env.FIRESTORE_EMULATOR_HOST, ssl: false });
+// }
 
 // Send email with SMTP2GO
 async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
