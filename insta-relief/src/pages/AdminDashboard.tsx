@@ -83,7 +83,7 @@ export default function AdminDashboard() {
     const checkAdminAndFetchData = async () => {
       const currentUser = auth.currentUser;
       if (!currentUser) {
-        navigate("/admin");
+        navigate("/login");
         return;
       }
 
@@ -92,7 +92,7 @@ export default function AdminDashboard() {
         if (!idTokenResult.claims.admin) {
           alert("Access denied. Admin privileges required.");
           await signOut(auth);
-          navigate("/admin");
+          navigate("/admin/");
           return;
         }
 
