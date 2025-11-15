@@ -37,6 +37,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
+import AdminWalletConnect from "../components/AdminWalletConnect";
 import { sendSol, getProvider } from "../lib/solana";
 
 interface UserData {
@@ -349,6 +350,7 @@ export default function AdminDashboard() {
         </Stack>
       </Stack>
 
+      <AdminWalletConnect />
 
       {message && (
         <Alert
