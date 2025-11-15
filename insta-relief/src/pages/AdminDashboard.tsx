@@ -37,6 +37,8 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
+import AdminWalletConnect from "../components/AdminWalletConnect";
+import { sendSol, getProvider } from "../lib/solana";
 
 interface UserData {
   id: string;
@@ -46,9 +48,10 @@ interface UserData {
   phone: string;
   zip: string;
   policyId: string;
-  balance: number;
+  balance?: number;
   status: string;
   isActivated: boolean;
+  walletAddress?: string;
 }
 
 interface Catastrophe {
@@ -77,6 +80,12 @@ export default function AdminDashboard() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<{
+    show: boolean;
+    current: number;
+    total: number;
+    currentUser?: string;
+  }>({ show: false, current: 0, total: 0 });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -90,9 +99,7 @@ export default function AdminDashboard() {
       try {
         const idTokenResult = await currentUser.getIdTokenResult();
         if (!idTokenResult.claims.admin) {
-          alert("Access denied. Admin privileges required.");
-          await signOut(auth);
-          navigate("/admin/");
+          navigate("/dashboard");
           return;
         }
 
@@ -101,7 +108,7 @@ export default function AdminDashboard() {
       } catch (error) {
         console.error(error);
         alert("Failed to verify admin status.");
-        navigate("/admin");
+        navigate("/login");
       } finally {
         setLoading(false);
       }
@@ -139,7 +146,7 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     await signOut(auth);
-    navigate("/admin");
+    navigate("/login");
   };
 
   const handleUpdateBalance = async (userId: string, newBalance: number) => {
@@ -155,50 +162,138 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleConfirmTrigger = () => {
+    const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
+    const affectedCount = users.filter(u => zipCodesArray.includes(u.zip) && u.walletAddress).length;
+    
+    if (affectedCount === 0) {
+      setMessage({ type: "error", text: "No users will be affected by these ZIP codes." });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `⚠️ CONFIRM CATASTROPHE TRIGGER\n\n` +
+      `This will send real cryptocurrency to ${affectedCount} user(s).\n\n` +
+      `Type: ${catastropheData.type}\n` +
+      `Location: ${catastropheData.location}\n` +
+      `Amount per user: $${catastropheData.amount} (${parseFloat(catastropheData.amount) / 100} SOL)\n\n` +
+      `Do you want to proceed?`
+    );
+
+    if (confirmed) {
+      handleTriggerCatastrophe();
+    }
+  };
+
   const handleTriggerCatastrophe = async () => {
     if (!catastropheData.type || !catastropheData.location || !catastropheData.zipCodes || !catastropheData.amount) {
       setMessage({ type: "error", text: "Please fill all required fields." });
       return;
     }
 
+    const provider = getProvider();
+    if (!provider || !provider.publicKey) {
+      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+      return;
+    }
+
     setSubmitting(true);
     try {
       const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
-      const amount = parseFloat(catastropheData.amount);
+      const amountUSD = parseFloat(catastropheData.amount);
+      const amountSOL = amountUSD / 100;
 
-      // Create catastrophe record
+      const usersSnapshot = await getDocs(collection(db, "users"));
+      const affectedUsers: any[] = [];
+      
+      usersSnapshot.forEach((userDoc) => {
+        const userData = userDoc.data();
+        if (zipCodesArray.includes(userData.zip) && userData.walletAddress) {
+          affectedUsers.push({
+            id: userDoc.id,
+            ...userData,
+          });
+        }
+      });
+
+      if (affectedUsers.length === 0) {
+        setMessage({ type: "error", text: "No users with wallet addresses found in affected ZIP codes." });
+        setSubmitting(false);
+        return;
+      }
+
+      const estimatedTotalSOL = affectedUsers.length * amountSOL;
+      console.log(`💰 Estimated total cost: ${estimatedTotalSOL.toFixed(4)} SOL for ${affectedUsers.length} users`);
+
+      const payoutResults = [];
+      for (let i = 0; i < affectedUsers.length; i++) {
+        const user = affectedUsers[i];
+        
+        setProcessingStatus({
+          show: true,
+          current: i + 1,
+          total: affectedUsers.length,
+          currentUser: user.email,
+        });
+
+        try {
+          const { signature, explorerUrl } = await sendSol(
+            user.walletAddress,
+            amountSOL
+          );
+
+          await updateDoc(doc(db, "users", user.id), {
+            balance: (user.balance ?? 0) + amountUSD,
+            status: "PAID",
+            lastPayout: new Date().toISOString(),
+            lastPayoutAmount: amountUSD,
+          });
+
+          payoutResults.push({
+            userId: user.id,
+            email: user.email,
+            success: true,
+            signature,
+            explorerUrl,
+          });
+
+          console.log(`✅ Sent ${amountSOL} SOL to ${user.email}`, explorerUrl);
+        } catch (error: any) {
+          console.error(`❌ Failed to send to ${user.email}:`, error);
+          payoutResults.push({
+            userId: user.id,
+            email: user.email,
+            success: false,
+            error: error.message,
+          });
+        }
+      }
+
+      setProcessingStatus({ show: false, current: 0, total: 0 });
+
       await addDoc(collection(db, "catastrophes"), {
         type: catastropheData.type,
         location: catastropheData.location,
         zipCodes: zipCodesArray,
-        amount: amount,
+        amount: amountUSD,
+        amountSOL: amountSOL,
         description: catastropheData.description,
         createdAt: new Date().toISOString(),
         createdBy: auth.currentUser?.email,
+        payoutResults: payoutResults,
+        totalAffected: affectedUsers.length,
+        successfulPayouts: payoutResults.filter(r => r.success).length,
+        failedPayouts: payoutResults.filter(r => !r.success).length,
       });
 
-      // Update balances for affected users
-      const usersSnapshot = await getDocs(collection(db, "users"));
-      const updatePromises: Promise<void>[] = [];
-
-      usersSnapshot.forEach((userDoc) => {
-        const userData = userDoc.data();
-        if (zipCodesArray.includes(userData.zip)) {
-          const newBalance = (userData.balance || 0) + amount;
-          updatePromises.push(
-            updateDoc(doc(db, "users", userDoc.id), {
-              balance: newBalance,
-            })
-          );
-        }
-      });
-
-      await Promise.all(updatePromises);
+      const successCount = payoutResults.filter(r => r.success).length;
+      const failCount = payoutResults.filter(r => !r.success).length;
 
       setMessage({
-        type: "success",
-        text: `Catastrophe triggered! ${updatePromises.length} users affected.`,
+        type: successCount > 0 ? "success" : "error",
+        text: `Catastrophe triggered! ${successCount} successful payouts, ${failCount} failed. Check console for details.`,
       });
+
       setOpenCatastropheDialog(false);
       setCatastropheData({
         type: "",
@@ -207,11 +302,13 @@ export default function AdminDashboard() {
         amount: "",
         description: "",
       });
+      
       await fetchUsers();
       await fetchCatastrophes();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setMessage({ type: "error", text: "Failed to trigger catastrophe." });
+      setMessage({ type: "error", text: "Failed to trigger catastrophe: " + error.message });
+      setProcessingStatus({ show: false, current: 0, total: 0 });
     } finally {
       setSubmitting(false);
     }
@@ -252,6 +349,8 @@ export default function AdminDashboard() {
           </Button>
         </Stack>
       </Stack>
+
+      <AdminWalletConnect />
 
       {message && (
         <Alert
@@ -305,14 +404,14 @@ export default function AdminDashboard() {
                           size="small"
                         />
                       </TableCell>
-                      <TableCell>${user.balance.toFixed(2)}</TableCell>
+                      <TableCell>${(user.balance ?? 0).toFixed(2)}</TableCell>
                       <TableCell>
                         <Button
                           size="small"
                           onClick={() => {
                             const newBalance = prompt(
                               `Enter new balance for ${user.firstName} ${user.lastName}:`,
-                              user.balance.toString()
+(user.balance ?? 0).toString()
                             );
                             if (newBalance !== null) {
                               handleUpdateBalance(user.id, parseFloat(newBalance));
@@ -371,7 +470,6 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      {/* Catastrophe Trigger Dialog */}
       <Dialog
         open={openCatastropheDialog}
         onClose={() => setOpenCatastropheDialog(false)}
@@ -435,7 +533,7 @@ export default function AdminDashboard() {
         <DialogActions>
           <Button onClick={() => setOpenCatastropheDialog(false)}>Cancel</Button>
           <Button
-            onClick={handleTriggerCatastrophe}
+            onClick={handleConfirmTrigger}
             variant="contained"
             color="error"
             disabled={submitting}
@@ -443,6 +541,28 @@ export default function AdminDashboard() {
             {submitting ? "Processing..." : "Trigger Event"}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog open={processingStatus.show} maxWidth="sm" fullWidth>
+        <DialogContent>
+          <Stack spacing={2} alignItems="center" sx={{ py: 3 }}>
+            <CircularProgress size={60} />
+            <Typography variant="h6">
+              Processing Blockchain Transactions
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Sending payment {processingStatus.current} of {processingStatus.total}
+            </Typography>
+            {processingStatus.currentUser && (
+              <Typography variant="caption" color="text.secondary">
+                To: {processingStatus.currentUser}
+              </Typography>
+            )}
+            <Typography variant="caption" color="warning.main">
+              Please don't close this window
+            </Typography>
+          </Stack>
+        </DialogContent>
       </Dialog>
     </Container>
   );
