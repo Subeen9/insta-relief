@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "instarelief-cd1ec"
+    "default": "instarelief-cd1ec",
+    "insurance": "insurance-1a234"
   },
   "targets": {},
   "etags": {}
