@@ -124,17 +124,17 @@ function buildTheme(mode: PaletteMode) {
           },
         },
       },
-      MuiPaper: { styleOverrides: { root: { backgroundImage: "none" } } },
-      MuiCard: {
-        styleOverrides: {
-          root: {
-            borderRadius: 16,
-            boxShadow: isDark
-              ? "0 2px 10px rgba(0,0,0,0.6)"
-              : "0 2px 10px rgba(0,0,0,0.05)",
-          },
-        },
-      },
+      // MuiPaper: { styleOverrides: { root: { backgroundImage: "none" } } },
+      // MuiCard: {
+      //   styleOverrides: {
+      //     root: {
+      //       borderRadius: 16,
+      //       boxShadow: isDark
+      //         ? "0 2px 10px rgba(0,0,0,0.6)"
+      //         : "0 2px 10px rgba(0,0,0,0.05)",
+      //     },
+      //   },
+      // },
     },
   });
 }

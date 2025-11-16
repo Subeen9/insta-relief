@@ -296,7 +296,7 @@ export default function AdminDashboard() {
   const handleConfirmTrigger = () => {
     const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
     const affectedCount = users.filter(u => zipCodesArray.includes(u.zip) && u.walletAddress).length;
-    
+
     if (affectedCount === 0) {
       setMessage({ type: "error", text: "No users will be affected by these ZIP codes." });
       return;
@@ -352,7 +352,7 @@ export default function AdminDashboard() {
       const exchangeRate = conversion.exchangeRate;
       const usersSnapshot = await getDocs(collection(db, "users"));
       const affectedUsers: any[] = [];
-      
+
       usersSnapshot.forEach((userDoc) => {
         const userData = userDoc.data();
         if (zipCodesArray.includes(userData.zip) && userData.walletAddress) {
@@ -372,7 +372,7 @@ export default function AdminDashboard() {
       const payoutResults = [];
       for (let i = 0; i < affectedUsers.length; i++) {
         const user = affectedUsers[i];
-        
+
         setProcessingStatus({
           show: true,
           current: i + 1,
@@ -439,7 +439,7 @@ export default function AdminDashboard() {
 
       setMessage({
         type: successCount > 0 ? "success" : "error",
-        text: `Catastrophe triggered! ${successCount} successful payouts, ${failCount} failed. Check console for details.`,
+        text: `Catastrophe triggered. ${successCount} successful payouts, ${failCount} failed.`,
       });
 
       setOpenCatastropheDialog(false);
@@ -450,7 +450,7 @@ export default function AdminDashboard() {
         amount: "",
         description: "",
       });
-      
+
       await fetchUsers();
       await fetchCatastrophes();
     } catch (error: any) {
