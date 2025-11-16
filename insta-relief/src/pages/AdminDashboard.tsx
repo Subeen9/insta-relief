@@ -226,20 +226,27 @@ export default function AdminDashboard() {
   // ==========================================================
   // 🆕 NEW: Function to call the existing simulateDisaster endpoint
   // ==========================================================
-  const callSimulateDisaster = async (zip: string) => {
-    // This exploits the existing backend email logic without modification.
-    try {
-      // Use a unique severity to distinguish this confirmation call in logs
-      const response = await fetch(`${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED`);
-      if (!response.ok) {
-        console.error("❌ Failed to trigger backend email (HTTP Error):", await response.text());
-      } else {
-        console.log("✅ Generic confirmation email triggered via simulateDisaster.");
-      }
-    } catch (error) {
-      console.error("❌ Network error triggering simulateDisaster:", error);
-    }
-  };
+// AdminDashboard.tsx: New function signature
+const callSimulateDisaster = async (zip: string, eventType: string) => {
+    try {
+        // We include the &event=... parameter in the URL.
+        const response = await fetch(
+            // Uses template literal to insert the event type
+            `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED&event=${eventType}`
+        ); 
+        if (!response.ok) {
+            console.error("❌ Failed to trigger backend email (HTTP Error):", await response.text());
+        } else {
+            console.log(`✅ Confirmation email triggered for ${eventType}.`);
+        }
+    } catch (error) {
+        console.error("❌ Network error triggering simulateDisaster:", error);
+    }
+};
+
+// 3. Update the call inside handleTriggerCatastrophe
+// Use the type from the catastropheData state
+
 
 
   // ==========================================================
@@ -306,7 +313,8 @@ export default function AdminDashboard() {
           );
 
           // 2. 📧 TRIGGER EMAIL CONFIRMATION *WHILE STATUS IS ACTIVE*
-          await callSimulateDisaster(user.zip); 
+          // Pass both the user's ZIP and the catastrophe type
+await callSimulateDisaster(user.zip, catastropheData.type);
 
           // 3. Update Firestore Status *AFTER* email call
           await updateDoc(doc(db, "users", user.id), {
