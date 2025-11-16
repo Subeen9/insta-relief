@@ -447,9 +447,9 @@ exports.disaster = functions.https.onCall(async (request, context) => {
         smtpConfig.api_key,
         [`${name} <${email}>`],
         "Disaster Alert <niraj.bhatta@selu.edu>",
-        "🚨 Flood Alert - Emergency Fund Released",
+        "Flood Alert - Emergency Fund Released",
         `
-          <h2 style="color:red;">🚨 Flood Alert</h2>
+          <h2 style="color:red;">Flood Alert</h2>
           <p>Dear ${name},</p>
           <p>Your micro-insurance policy has been triggered for ZIP <b>${zip}</b>.</p>
           <p><strong>$100 has been released to your emergency fund.</strong></p>
@@ -464,7 +464,7 @@ exports.disaster = functions.https.onCall(async (request, context) => {
       console.log(`Email sent to ${email}`, emailResponse);
       result.push(email);
     } catch (err) {
-      console.error(`❌ Failed to process ${email}:`, err);
+      console.error(`Failed to process ${email}:`, err);
       errors.push({
         email,
         error: err.message || "Unknown error",
@@ -557,14 +557,15 @@ exports.sendCatastropheEmail = functions.https.onRequest(async (req, res) => {
 });
 
 // -----------------------------------------------------
-// 5. AI Admin Agent with Simulator Access
+// 5. AI Admin Agent
 // -----------------------------------------------------
 
-const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY,
-});
-
-exports.adminAgent = functions.https.onRequest(async (req, res) => {
+exports.adminAgent = functions.https.onRequest(
+  {
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Content-Type");
@@ -580,6 +581,11 @@ exports.adminAgent = functions.https.onRequest(async (req, res) => {
     if (!query) {
       return res.status(400).json({ error: "Missing query" });
     }
+
+    // Initialize Anthropic INSIDE the function to avoid cold start timeout
+    const anthropic = new Anthropic({
+      apiKey: process.env.CLAUDE_API_KEY,
+    });
 
     // AI Tools
     const tools = [
@@ -701,13 +707,13 @@ exports.adminAgent = functions.https.onRequest(async (req, res) => {
           });
 
           const catastropheTypes = [
-            { type: "Flood", emoji: "", description: "Flooding event" },
-            { type: "Hurricane", emoji: "", description: "Hurricane storm" },
-            { type: "Earthquake", emoji: "", description: "Seismic activity" },
-            { type: "Wildfire", emoji: "", description: "Forest fire" },
-            { type: "Tornado", emoji: "", description: "Tornado event" },
-            { type: "Winter Storm", emoji: "", description: "Severe winter weather" },
-            { type: "Drought", emoji: "", description: "Extended drought" }
+            { type: "Flood", description: "Flooding event" },
+            { type: "Hurricane", description: "Hurricane storm" },
+            { type: "Earthquake", description: "Seismic activity" },
+            { type: "Wildfire", description: "Forest fire" },
+            { type: "Tornado", description: "Tornado event" },
+            { type: "Winter Storm", description: "Severe winter weather" },
+            { type: "Drought", description: "Extended drought" }
           ];
 
           return {
@@ -841,20 +847,8 @@ exports.adminAgent = functions.https.onRequest(async (req, res) => {
             },
 
             message: usersWithWallet.length > 0 
-              ? `READY TO EXECUTE!
-
-Balance Updates:
-• ${balanceUpdates.length} users updated in Firestore
-• $${balanceUpdates.length * amount} total added to balances
-
-Phantom Trigger:
-• ${usersWithWallet.length} users ready to receive SOL
-• ${estimatedSOL} SOL needed ($${estimatedCost})
-• ${usersWithoutWallet.length} users without wallets (skipped)
-
-Next: Click the button to open pre-filled dialog and trigger Phantom!`
-              : `
-Balance updated for ${balanceUpdates.length} users, but NONE have Phantom wallets connected. Cannot send SOL.`
+              ? `READY TO EXECUTE!\n\nBalance Updates:\n• ${balanceUpdates.length} users updated in Firestore\n• $${balanceUpdates.length * amount} total added to balances\n\nPhantom Trigger:\n• ${usersWithWallet.length} users ready to receive SOL\n• ${estimatedSOL} SOL needed ($${estimatedCost})\n• ${usersWithoutWallet.length} users without wallets (skipped)\n\nNext: Click the button to open pre-filled dialog and trigger Phantom!`
+              : `Balance updated for ${balanceUpdates.length} users, but NONE have Phantom wallets connected. Cannot send SOL.`
           };
         }
 
@@ -958,28 +952,51 @@ Balance updated for ${balanceUpdates.length} users, but NONE have Phantom wallet
         max_tokens: 4096,
         system: `You are the AI Admin Assistant for Insta-Relief disaster insurance platform.
 
-        FORMATTING CATASTROPHE EVENTS:
-        When showing catastrophe events, YOU MUST DISPLAY THE ACTUAL NUMBERS.
-        Do NOT leave numeric values blank.
-        
-        For each event, use this format:
-        
-        Event NUMBER:
-          Type = VALUE
-          Location = VALUE
-          Date = VALUE
-          ZIP Codes = VALUE
-          Amount USD = NUMBER
-          Amount SOL = NUMBER
-          Total Affected = NUMBER
-          Successful Payouts = NUMBER
-          Failed Payouts = NUMBER
-          Emails Sent = NUMBER
-          Triggered By = VALUE
-        
-        The numbers MUST appear.
+WORKFLOW:
+When admin wants to trigger a catastrophe:
+1. Use auto_trigger_catastrophe tool
+2. This automatically updates ALL user balances in Firestore and prepares catastrophe trigger form for Phantom wallet
+3. Admin reviews and confirms in UI
+4. Phantom wallet sends SOL payments
+5. Emails are sent automatically AFTER successful blockchain payment
 
-        Be proactive, clear, and helpful in your responses.`,
+Your capabilities:
+- Auto-update user balances in Firestore
+- Auto-fill catastrophe forms
+- Analyze user data and provide recommendations
+- Review catastrophe history
+- Answer questions about the platform
+
+Platform details:
+- SERVICE AREA: Louisiana, USA (Hammond, Baton Rouge, New Orleans, Lafayette areas)
+- Primary ZIP codes: 70401-70403 (Hammond), 70112-70119 (New Orleans), 70801-70809 (Baton Rouge)
+- Hammond assumption: If user says "Hammond" without state, assume Hammond, Louisiana
+- Users have Phantom wallet addresses for SOL payments
+- Balances tracked in Firestore (USD)
+- SOL payments via Phantom (1 SOL = $100)
+- User statuses: ACTIVE (can receive payouts) or PAID (already received)
+- IMPORTANT: Only ACTIVE users receive payouts
+
+Available catastrophe types:
+- Flood, Hurricane, Earthquake, Wildfire, Tornado, Winter Storm, Drought
+
+FORMATTING CATASTROPHE EVENTS:
+When showing catastrophe events, display actual numbers in this format:
+
+Event NUMBER:
+  Type = VALUE
+  Location = VALUE
+  Date = VALUE
+  ZIP Codes = VALUE
+  Amount USD = NUMBER
+  Amount SOL = NUMBER
+  Total Affected = NUMBER
+  Successful Payouts = NUMBER
+  Failed Payouts = NUMBER
+  Emails Sent = NUMBER
+  Triggered By = VALUE
+
+Be proactive, clear, and helpful in your responses.`,
         tools,
         messages
       });
@@ -1031,3 +1048,4 @@ Balance updated for ${balanceUpdates.length} users, but NONE have Phantom wallet
     return res.status(500).json({ error: error.message });
   }
 });
+
