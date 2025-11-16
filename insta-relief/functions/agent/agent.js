@@ -1,25 +1,12 @@
-const Anthropic = require("@anthropic-ai/sdk");
-const { tools } = require("./tools");
-const { toolHandlers } = require("./handlers");
-
-const client = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY
-});
-
 exports.runClaudeAgent = async function (userQuery) {
   const msg = await client.messages.create({
-    model: "claude-3-5-sonnet",
+    model: "claude-sonnet-4-5-20250929", // ✅ CORRECT MODEL
     max_tokens: 1000,
     tools,
+    system: `You are the Admin Automation Agent.
+You generate simulated disasters, validate users, and automate admin tasks.
+NEVER produce real emergency alerts.`,
     messages: [
-      {
-        role: "system",
-        content: `
-          You are the Admin Automation Agent.
-          You generate simulated disasters, validate users, and automate admin tasks.
-          NEVER produce real emergency alerts.
-        `
-      },
       {
         role: "user",
         content: userQuery
@@ -37,14 +24,28 @@ exports.runClaudeAgent = async function (userQuery) {
   const result = await handler(toolCall.input);
 
   const final = await client.messages.create({
-    model: "claude-3-5-sonnet",
+    model: "claude-sonnet-4-5-20250929", // ✅ AND HERE TOO
     max_tokens: 800,
+    tools,
+    system: `You are the Admin Automation Agent.`,
     messages: [
-      ...msg.messages,
       {
-        role: "tool",
-        content: JSON.stringify(result),
-        tool_call_id: toolCall.id
+        role: "user",
+        content: userQuery
+      },
+      {
+        role: "assistant",
+        content: msg.content
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolCall.id,
+            content: JSON.stringify(result)
+          }
+        ]
       }
     ]
   });
