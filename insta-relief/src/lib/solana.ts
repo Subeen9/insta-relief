@@ -45,7 +45,7 @@ export async function sendSol(
 
   try {
     const recipient = new PublicKey(toAddress);
-    const lamports = amountSol * LAMPORTS_PER_SOL;
+ const lamports = Math.floor(amountSol * LAMPORTS_PER_SOL);
 
     const transaction = new Transaction().add(
       SystemProgram.transfer({
