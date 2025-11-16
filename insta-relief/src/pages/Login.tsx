@@ -16,16 +16,17 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
   const handleLogin = async () => {
     setLoading(true);
+    setError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      alert("Welcome back!");
       navigate("/dashboard");
     } catch (error: any) {
-      alert(error.message);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -47,6 +48,7 @@ export default function LoginPage() {
               fullWidth
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              error={!!error}
             />
             <TextField
               label="Password"
@@ -54,6 +56,8 @@ export default function LoginPage() {
               fullWidth
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              error={!!error}
+              helperText={error}
             />
             <Button
               fullWidth
