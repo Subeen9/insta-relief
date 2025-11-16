@@ -154,18 +154,98 @@ export default function AdminDashboard() {
     navigate("/login");
   };
 
-  const handleUpdateBalance = async (userId: string, newBalance: number) => {
+ const handleUpdateBalance = async (userId: string, newBalance: number) => {
+  const user = users.find(u => u.id === userId);
+  
+  if (!user) {
+    setMessage({ type: "error", text: "User not found." });
+    return;
+  }
+
+  const currentBalance = user.balance ?? 0;
+  const difference = newBalance - currentBalance;
+
+  if (difference === 0) {
+    setMessage({ type: "error", text: "No balance change detected." });
+    return;
+  }
+
+  // If decreasing balance, just update database
+  if (difference < 0) {
     try {
       await updateDoc(doc(db, "users", userId), {
         balance: newBalance,
       });
-      setMessage({ type: "success", text: "Balance updated successfully!" });
+      setMessage({ type: "success", text: `Balance decreased by $${Math.abs(difference).toFixed(2)}` });
       await fetchUsers();
     } catch (error) {
       console.error(error);
       setMessage({ type: "error", text: "Failed to update balance." });
     }
-  };
+    return;
+  }
+
+  // If increasing balance, check wallet and send SOL
+  if (!user.walletAddress) {
+    setMessage({ type: "error", text: "User has no connected wallet address. Cannot send SOL." });
+    return;
+  }
+
+  const provider = getProvider();
+  if (!provider || !provider.publicKey) {
+    setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+    return;
+  }
+
+  try {
+    setSubmitting(true);
+
+    // Convert USD to SOL
+    const conversion = await convertUSDtoSOL(difference, 2);
+    const amountSOL = conversion.solAmount;
+
+    const confirmed = window.confirm(
+      `💰 SEND SOL PAYMENT\n\n` +
+      `This will send real cryptocurrency to ${user.firstName} ${user.lastName}.\n\n` +
+      `Amount: $${difference.toFixed(2)} (${amountSOL.toFixed(4)} SOL)\n` +
+      `To: ${user.walletAddress.slice(0, 8)}...${user.walletAddress.slice(-8)}\n\n` +
+      `Do you want to proceed?`
+    );
+
+    if (!confirmed) {
+      setSubmitting(false);
+      return;
+    }
+
+    // Send the SOL
+    const { signature, explorerUrl } = await sendSol(
+      user.walletAddress,
+      amountSOL
+    );
+
+    console.log(`✅ Sent ${amountSOL.toFixed(4)} SOL to ${user.email}`, explorerUrl);
+
+    // Update Firestore balance
+    await updateDoc(doc(db, "users", userId), {
+      balance: newBalance,
+      lastPayout: new Date().toISOString(),
+      lastPayoutAmount: difference,
+      status: "PAID",
+    });
+
+    setMessage({ 
+      type: "success", 
+      text: `Successfully sent ${amountSOL.toFixed(4)} SOL ($${difference.toFixed(2)})! View transaction: ${explorerUrl}` 
+    });
+
+    await fetchUsers();
+  } catch (error: any) {
+    console.error(error);
+    setMessage({ type: "error", text: `Failed to update balance: ${error.message}` });
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   // ✅ NEW: Handle AI-prepared catastrophe data
   const handleAIPreparedCatastrophe = (aiData: any) => {
