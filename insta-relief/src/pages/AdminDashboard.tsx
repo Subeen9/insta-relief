@@ -95,6 +95,11 @@ export default function AdminDashboard() {
     amountSOL?: number;
     newBalance?: number;
   }>({ open: false });
+  const [balanceInputDialog, setBalanceInputDialog] = useState<{
+    open: boolean;
+    user?: UserData;
+  }>({ open: false });
+  const [newBalanceInput, setNewBalanceInput] = useState("");
   const navigate = useNavigate();
 
   const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
@@ -540,13 +545,8 @@ export default function AdminDashboard() {
                         <Button
                           size="small"
                           onClick={() => {
-                            const newBalance = prompt(
-                              `Enter new balance for ${user.firstName} ${user.lastName}:`,
-                              (user.balance ?? 0).toString()
-                            );
-                            if (newBalance !== null) {
-                              handleUpdateBalance(user.id, parseFloat(newBalance));
-                            }
+                            setBalanceInputDialog({ open: true, user });
+                            setNewBalanceInput((user.balance ?? 0).toString());
                           }}
                           disabled={submitting}
                         >
@@ -702,6 +702,67 @@ export default function AdminDashboard() {
             </Typography>
           </Stack>
         </DialogContent>
+      </Dialog>
+
+      <Dialog 
+        open={balanceInputDialog.open} 
+        onClose={() => setBalanceInputDialog({ open: false })}
+        maxWidth="xs" 
+        fullWidth
+      >
+        <DialogTitle>Update Balance</DialogTitle>
+        
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="User"
+              value={`${balanceInputDialog.user?.firstName} ${balanceInputDialog.user?.lastName}`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="Current Balance"
+              value={`$${(balanceInputDialog.user?.balance ?? 0).toFixed(2)}`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="New Balance"
+              type="number"
+              fullWidth
+              autoFocus
+              value={newBalanceInput}
+              onChange={(e) => setNewBalanceInput(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  const newBalance = parseFloat(newBalanceInput);
+                  if (!isNaN(newBalance) && balanceInputDialog.user) {
+                    handleUpdateBalance(balanceInputDialog.user.id, newBalance);
+                    setBalanceInputDialog({ open: false });
+                  }
+                }
+              }}
+            />
+          </Stack>
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setBalanceInputDialog({ open: false })}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              const newBalance = parseFloat(newBalanceInput);
+              if (!isNaN(newBalance) && balanceInputDialog.user) {
+                handleUpdateBalance(balanceInputDialog.user.id, newBalance);
+                setBalanceInputDialog({ open: false });
+              }
+            }}
+            variant="contained"
+          >
+            Update
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog 
