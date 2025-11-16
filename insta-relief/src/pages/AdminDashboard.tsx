@@ -1,40 +1,40 @@
 import { useEffect, useState } from "react";
 import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Container,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-  Chip,
-  Paper,
-  Alert,
-  CircularProgress,
-  Tab,
-  Tabs,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+  Chip,
+  Paper,
+  Alert,
+  CircularProgress,
+  Tab,
+  Tabs,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../firebase";
 import {
-  collection,
-  getDocs,
-  doc,
-  updateDoc,
-  addDoc,
-  query,
-  orderBy,
+  collection,
+  getDocs,
+  doc,
+  updateDoc,
+  addDoc,
+  query,
+  orderBy,
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import AdminWalletConnect from "../components/AdminWalletConnect";
@@ -43,32 +43,32 @@ import { sendSol, getProvider } from "../lib/solana";
 import { convertUSDtoSOL } from "../lib/priceService";
 
 interface UserData {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  zip: string;
-  policyId: string;
-  balance?: number;
-  status: string;
-  isActivated: boolean;
-  walletAddress?: string;
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  zip: string;
+  policyId: string;
+  balance?: number;
+  status: string;
+  isActivated: boolean;
+  walletAddress?: string;
 }
 
 interface Catastrophe {
-  id: string;
-  type: string;
-  location: string;
-  zipCodes: string[];
-  amount: number;
-  description: string;
-  createdAt: string;
-  createdBy: string;
+  id: string;
+  type: string;
+  location: string;
+  zipCodes: string[];
+  amount: number;
+  description: string;
+  createdAt: string;
+  createdBy: string;
 }
 
-// ⚠️ IMPORTANT: Ensure this URL is correct for your environment (Deployed or Emulator)
 const SIMULATE_DISASTER_URL = "https://simulatedisaster-eelyy5nzaa-uc.a.run.app";
+const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<UserData[]>([]);
@@ -105,7 +105,6 @@ export default function AdminDashboard() {
   const [newBalanceInput, setNewBalanceInput] = useState("");
   const navigate = useNavigate();
 
-  const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
   useEffect(() => {
     const checkAdminAndFetchData = async () => {
       const currentUser = auth.currentUser;
@@ -114,58 +113,58 @@ export default function AdminDashboard() {
         return;
       }
 
-      try {
-        const idTokenResult = await currentUser.getIdTokenResult();
-        if (!idTokenResult.claims.admin) {
-          navigate("/dashboard");
-          return;
-        }
+      try {
+        const idTokenResult = await currentUser.getIdTokenResult();
+        if (!idTokenResult.claims.admin) {
+          navigate("/dashboard");
+          return;
+        }
 
-        await fetchUsers();
-        await fetchCatastrophes();
-      } catch (error) {
-        console.error(error);
-        alert("Failed to verify admin status.");
-        navigate("/login");
-      } finally {
-        setLoading(false);
-      }
-    };
+        await fetchUsers();
+        await fetchCatastrophes();
+      } catch (error) {
+        console.error(error);
+        alert("Failed to verify admin status.");
+        navigate("/login");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    checkAdminAndFetchData();
-  }, [navigate]);
+    checkAdminAndFetchData();
+  }, [navigate]);
 
-  const fetchUsers = async () => {
-    try {
-      const usersSnapshot = await getDocs(collection(db, "users"));
-      const usersData: UserData[] = [];
-      usersSnapshot.forEach((doc) => {
-        usersData.push({ id: doc.id, ...doc.data() } as UserData);
-      });
-      setUsers(usersData);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    }
-  };
+  const fetchUsers = async () => {
+    try {
+      const usersSnapshot = await getDocs(collection(db, "users"));
+      const usersData: UserData[] = [];
+      usersSnapshot.forEach((doc) => {
+        usersData.push({ id: doc.id, ...doc.data() } as UserData);
+      });
+      setUsers(usersData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
 
-  const fetchCatastrophes = async () => {
-    try {
-      const q = query(collection(db, "catastrophes"), orderBy("createdAt", "desc"));
-      const catastrophesSnapshot = await getDocs(q);
-      const catastrophesData: Catastrophe[] = [];
-      catastrophesSnapshot.forEach((doc) => {
-        catastrophesData.push({ id: doc.id, ...doc.data() } as Catastrophe);
-      });
-      setCatastrophes(catastrophesData);
-    } catch (error) {
-      console.error("Error fetching catastrophes:", error);
-    }
-  };
+  const fetchCatastrophes = async () => {
+    try {
+      const q = query(collection(db, "catastrophes"), orderBy("createdAt", "desc"));
+      const catastrophesSnapshot = await getDocs(q);
+      const catastrophesData: Catastrophe[] = [];
+      catastrophesSnapshot.forEach((doc) => {
+        catastrophesData.push({ id: doc.id, ...doc.data() } as Catastrophe);
+      });
+      setCatastrophes(catastrophesData);
+    } catch (error) {
+      console.error("Error fetching catastrophes:", error);
+    }
+  };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/login");
-  };
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/login");
+  };
 
   const handleUpdateBalance = async (userId: string, newBalance: number) => {
     const user = users.find(u => u.id === userId);
@@ -183,7 +182,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // If decreasing balance, just update database
     if (difference < 0) {
       try {
         await updateDoc(doc(db, "users", userId), {
@@ -198,7 +196,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // If increasing balance, check wallet and send SOL
     if (!user.walletAddress) {
       setMessage({ type: "error", text: "User has no connected wallet address. Cannot send SOL." });
       return;
@@ -211,7 +208,6 @@ export default function AdminDashboard() {
     }
 
     try {
-      // Convert USD to SOL
       const conversion = await convertUSDtoSOL(difference, 2);
       const amountSOL = conversion.solAmount;
 
@@ -227,53 +223,55 @@ export default function AdminDashboard() {
       setMessage({ type: "error", text: `Failed to prepare payment: ${error.message}` });
     }
   };
-const handleConfirmPayment = async () => {
-  if (!paymentConfirmDialog.user || !paymentConfirmDialog.amountSOL) return;
 
-  const { user, amountUSD, amountSOL, newBalance } = paymentConfirmDialog;
+  const handleConfirmPayment = async () => {
+    if (!paymentConfirmDialog.user || !paymentConfirmDialog.amountSOL) return;
 
-  try {
-    setSubmitting(true);
-    setPaymentConfirmDialog({ open: false });
+    const { user, amountUSD, amountSOL, newBalance } = paymentConfirmDialog;
 
-    const { signature, explorerUrl } = await sendSol(
-      user.walletAddress!,
-      amountSOL
-    );
+    try {
+      setSubmitting(true);
+      setPaymentConfirmDialog({ open: false });
 
-    console.log(`Sent ${amountSOL.toFixed(4)} SOL to ${user.email}`, explorerUrl);
+      const { signature, explorerUrl } = await sendSol(
+        user.walletAddress!,
+        amountSOL
+      );
 
-    await updateDoc(doc(db, "users", user.id), {
-      balance: newBalance,
-      lastPayout: new Date().toISOString(),
-      lastPayoutAmount: amountUSD,
-      status: "PAID",
-    });
+      console.log(`Sent ${amountSOL.toFixed(4)} SOL to ${user.email}`, explorerUrl);
 
-    setMessage({ 
-      type: "success", 
-      text: `Successfully sent ${amountSOL.toFixed(4)} SOL ($${amountUSD?.toFixed(2)})! View transaction: ${explorerUrl}` 
-    });
-
-    await fetchUsers();
-  } catch (error: any) {
-    console.error("Payment error:", error);
-    
-    if (error.message?.includes("cancelled") || error.message?.includes("rejected")) {
-      setMessage({ 
-        type: "error", 
-        text: "Transaction cancelled by user." 
+      await updateDoc(doc(db, "users", user.id), {
+        balance: newBalance,
+        lastPayout: new Date().toISOString(),
+        lastPayoutAmount: amountUSD,
+        status: "PAID",
       });
-    } else {
+
       setMessage({ 
-        type: "error", 
-        text: `Failed to send payment: ${error.message}. Balance was not updated.` 
+        type: "success", 
+        text: `Successfully sent ${amountSOL.toFixed(4)} SOL ($${amountUSD?.toFixed(2)})! View transaction: ${explorerUrl}` 
       });
+
+      await fetchUsers();
+    } catch (error: any) {
+      console.error("Payment error:", error);
+      
+      if (error.message?.includes("cancelled") || error.message?.includes("rejected")) {
+        setMessage({ 
+          type: "error", 
+          text: "Transaction cancelled by user. No payment was sent and balance was not updated." 
+        });
+      } else {
+        setMessage({ 
+          type: "error", 
+          text: `Failed to send payment: ${error.message}. Balance was not updated.` 
+        });
+      }
+    } finally {
+      setSubmitting(false);
     }
-  } finally {
-    setSubmitting(false);
-  }
-};
+  };
+
   const handleAIPreparedCatastrophe = (aiData: any) => {
     console.log("AI prepared catastrophe data:", aiData);
     
@@ -295,138 +293,119 @@ const handleConfirmPayment = async () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleConfirmTrigger = () => {
-    const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
-    const affectedCount = users.filter(u => zipCodesArray.includes(u.zip) && u.walletAddress).length;
-    
-    if (affectedCount === 0) {
-      setMessage({ type: "error", text: "No users will be affected by these ZIP codes." });
-      return;
-    }
+  const handleConfirmTrigger = () => {
+    const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
+    const affectedCount = users.filter(u => zipCodesArray.includes(u.zip) && u.walletAddress).length;
+    
+    if (affectedCount === 0) {
+      setMessage({ type: "error", text: "No users will be affected by these ZIP codes." });
+      return;
+    }
 
     const confirmed = window.confirm(
       `CONFIRM CATASTROPHE TRIGGER\n\n` +
       `This will send real cryptocurrency to ${affectedCount} user(s).\n\n` +
       `Type: ${catastropheData.type}\n` +
       `Location: ${catastropheData.location}\n` +
-      `Amount per user: $${catastropheData.amount} (${parseFloat(catastropheData.amount) / 100} SOL)\n\n` +
+      `Amount per user: $${catastropheData.amount}\n\n` +
       `Do you want to proceed?`
     );
 
-    if (confirmed) {
-      handleTriggerCatastrophe();
-    }
-  };
-
-  // ==========================================================
-  // 🆕 NEW: Function to call the existing simulateDisaster endpoint
-  // ==========================================================
-// AdminDashboard.tsx: New function signature
-const callSimulateDisaster = async (zip: string, eventType: string) => {
-    try {
-        // We include the &event=... parameter in the URL.
-        const response = await fetch(
-            // Uses template literal to insert the event type
-            `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED&event=${eventType}`
-        ); 
-        if (!response.ok) {
-            console.error("❌ Failed to trigger backend email (HTTP Error):", await response.text());
-        } else {
-            console.log(`✅ Confirmation email triggered for ${eventType}.`);
-        }
-    } catch (error) {
-        console.error("❌ Network error triggering simulateDisaster:", error);
+    if (confirmed) {
+      handleTriggerCatastrophe();
     }
-};
+  };
 
-// 3. Update the call inside handleTriggerCatastrophe
-// Use the type from the catastropheData state
+  const callSimulateDisaster = async (zip: string, eventType: string) => {
+    try {
+      const response = await fetch(
+        `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED&event=${eventType}`
+      ); 
+      if (!response.ok) {
+        console.error("Failed to trigger backend email:", await response.text());
+      } else {
+        console.log(`Confirmation email triggered for ${eventType}.`);
+      }
+    } catch (error) {
+      console.error("Network error triggering simulateDisaster:", error);
+    }
+  };
 
+  const handleTriggerCatastrophe = async () => {
+    if (!catastropheData.type || !catastropheData.location || !catastropheData.zipCodes || !catastropheData.amount) {
+      setMessage({ type: "error", text: "Please fill all required fields." });
+      return;
+    }
 
+    const provider = getProvider();
+    if (!provider || !provider.publicKey) {
+      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+      return;
+    }
 
-  // ==========================================================
-  // 🔄 MODIFIED: Payout Logic (Swapped Firestore Update)
-  // ==========================================================
+    setSubmitting(true);
+    try {
+      const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
+      const amountUSD = parseFloat(catastropheData.amount);
+      const conversion = await convertUSDtoSOL(amountUSD, 2); 
+      const amountSOL = conversion.solAmount;
+      const exchangeRate = conversion.exchangeRate;
+      const usersSnapshot = await getDocs(collection(db, "users"));
+      const affectedUsers: any[] = [];
+      
+      usersSnapshot.forEach((userDoc) => {
+        const userData = userDoc.data();
+        if (zipCodesArray.includes(userData.zip) && userData.walletAddress) {
+          affectedUsers.push({
+            id: userDoc.id,
+            ...userData,
+          });
+        }
+      });
 
-  const handleTriggerCatastrophe = async () => {
-    if (!catastropheData.type || !catastropheData.location || !catastropheData.zipCodes || !catastropheData.amount) {
-      setMessage({ type: "error", text: "Please fill all required fields." });
-      return;
-    }
+      if (affectedUsers.length === 0) {
+        setMessage({ type: "error", text: "No users with wallet addresses found in affected ZIP codes." });
+        setSubmitting(false);
+        return;
+      }
 
-    const provider = getProvider();
-    if (!provider || !provider.publicKey) {
-      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
-      return;
-    }
+      const payoutResults = [];
+      for (let i = 0; i < affectedUsers.length; i++) {
+        const user = affectedUsers[i];
+        
+        setProcessingStatus({
+          show: true,
+          current: i + 1,
+          total: affectedUsers.length,
+          currentUser: user.email,
+        });
 
-    setSubmitting(true);
-    try {
-      const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
-      const amountUSD = parseFloat(catastropheData.amount);
-      const conversion = await convertUSDtoSOL(amountUSD, 2); 
-      const amountSOL = conversion.solAmount;
-      const exchangeRate = conversion.exchangeRate;
-      const usersSnapshot = await getDocs(collection(db, "users"));
-      const affectedUsers: any[] = [];
-      
-      usersSnapshot.forEach((userDoc) => {
-        const userData = userDoc.data();
-        if (zipCodesArray.includes(userData.zip) && userData.walletAddress) {
-          affectedUsers.push({
-            id: userDoc.id,
-            ...userData,
-          });
-        }
-      });
+        try {
+          const { signature, explorerUrl } = await sendSol(
+            user.walletAddress,
+            amountSOL
+          );
 
-      if (affectedUsers.length === 0) {
-        setMessage({ type: "error", text: "No users with wallet addresses found in affected ZIP codes." });
-        setSubmitting(false);
-        return;
-      }
+          await callSimulateDisaster(user.zip, catastropheData.type);
 
-      const estimatedTotalSOL = affectedUsers.length * amountSOL;
+          await updateDoc(doc(db, "users", user.id), {
+            balance: (user.balance ?? 0) + amountUSD,
+            status: "PAID",
+            lastPayout: new Date().toISOString(),
+            lastPayoutAmount: amountUSD,
+          });
 
-      const payoutResults = [];
-      for (let i = 0; i < affectedUsers.length; i++) {
-        const user = affectedUsers[i];
-        
-        setProcessingStatus({
-          show: true,
-          current: i + 1,
-          total: affectedUsers.length,
-          currentUser: user.email,
-        });
+          payoutResults.push({
+            userId: user.id,
+            email: user.email,
+            success: true,
+            signature,
+            explorerUrl,
+          });
 
-        try {
-          // 1. Send SOL via Solana network
-          const { signature, explorerUrl } = await sendSol(
-            user.walletAddress,
-            amountSOL
-          );
-
-          // 2. 📧 TRIGGER EMAIL CONFIRMATION *WHILE STATUS IS ACTIVE*
-          // Pass both the user's ZIP and the catastrophe type
-await callSimulateDisaster(user.zip, catastropheData.type);
-
-          // 3. Update Firestore Status *AFTER* email call
-          await updateDoc(doc(db, "users", user.id), {
-            balance: (user.balance ?? 0) + amountUSD,
-            status: "PAID",
-            lastPayout: new Date().toISOString(),
-            lastPayoutAmount: amountUSD,
-          });
-
-          payoutResults.push({
-            userId: user.id,
-            email: user.email,
-            success: true,
-            signature,
-            explorerUrl,
-          });
-
+          console.log(`Sent ${amountSOL} SOL to ${user.email}`, explorerUrl);
         } catch (error: any) {
+          console.error(`Failed to send to ${user.email}:`, error);
           payoutResults.push({
             userId: user.id,
             email: user.email,
@@ -436,100 +415,100 @@ await callSimulateDisaster(user.zip, catastropheData.type);
         }
       }
 
-      setProcessingStatus({ show: false, current: 0, total: 0 });
+      setProcessingStatus({ show: false, current: 0, total: 0 });
 
-      await addDoc(collection(db, "catastrophes"), {
-        type: catastropheData.type,
-        location: catastropheData.location,
-        zipCodes: zipCodesArray,
-        amount: amountUSD,
-        amountSOL: amountSOL,
-        exchangeRate: exchangeRate,
-        priceTimestamp: conversion.timestamp,
-        description: catastropheData.description,
-        createdAt: new Date().toISOString(),
-        createdBy: auth.currentUser?.email,
-        payoutResults: payoutResults,
-        totalAffected: affectedUsers.length,
-        successfulPayouts: payoutResults.filter(r => r.success).length,
-        failedPayouts: payoutResults.filter(r => !r.success).length,
-      });
+      await addDoc(collection(db, "catastrophes"), {
+        type: catastropheData.type,
+        location: catastropheData.location,
+        zipCodes: zipCodesArray,
+        amount: amountUSD,
+        amountSOL: amountSOL,
+        exchangeRate: exchangeRate,
+        priceTimestamp: conversion.timestamp,
+        description: catastropheData.description,
+        createdAt: new Date().toISOString(),
+        createdBy: auth.currentUser?.email,
+        payoutResults: payoutResults,
+        totalAffected: affectedUsers.length,
+        successfulPayouts: payoutResults.filter(r => r.success).length,
+        failedPayouts: payoutResults.filter(r => !r.success).length,
+      });
 
-      const successCount = payoutResults.filter(r => r.success).length;
-      const failCount = payoutResults.filter(r => !r.success).length;
+      const successCount = payoutResults.filter(r => r.success).length;
+      const failCount = payoutResults.filter(r => !r.success).length;
 
-      setMessage({
-        type: successCount > 0 ? "success" : "error",
-        text: `Catastrophe triggered! ${successCount} successful payouts, ${failCount} failed. Check console for details.`,
-      });
+      setMessage({
+        type: successCount > 0 ? "success" : "error",
+        text: `Catastrophe triggered! ${successCount} successful payouts, ${failCount} failed. Check console for details.`,
+      });
 
-      setOpenCatastropheDialog(false);
-      setCatastropheData({
-        type: "",
-        location: "",
-        zipCodes: "",
-        amount: "",
-        description: "",
-      });
-      
-      await fetchUsers();
-      await fetchCatastrophes();
-    } catch (error: any) {
-      console.error(error);
-      setMessage({ type: "error", text: "Failed to trigger catastrophe: " + error.message });
-      setProcessingStatus({ show: false, current: 0, total: 0 });
-    } finally {
-      setSubmitting(false);
-    }
-  };
+      setOpenCatastropheDialog(false);
+      setCatastropheData({
+        type: "",
+        location: "",
+        zipCodes: "",
+        amount: "",
+        description: "",
+      });
+      
+      await fetchUsers();
+      await fetchCatastrophes();
+    } catch (error: any) {
+      console.error(error);
+      setMessage({ type: "error", text: "Failed to trigger catastrophe: " + error.message });
+      setProcessingStatus({ show: false, current: 0, total: 0 });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-  if (loading) {
-    return (
-      <Container
-        sx={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <CircularProgress />
-      </Container>
-    );
-  }
+  if (loading) {
+    return (
+      <Container
+        sx={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <CircularProgress />
+      </Container>
+    );
+  }
 
-  return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, color: "primary.main" }}>
-          Admin Dashboard
-        </Typography>
-        <Stack direction="row" spacing={2}>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => setOpenCatastropheDialog(true)}
-            sx={{ fontWeight: 600 }}
-          >
-            Trigger Catastrophe
-          </Button>
-          <Button variant="outlined" onClick={handleLogout}>
-            Logout
-          </Button>
-        </Stack>
-      </Stack>
+  return (
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
+        <Typography variant="h4" sx={{ fontWeight: 700, color: "primary.main" }}>
+          Admin Dashboard
+        </Typography>
+        <Stack direction="row" spacing={2}>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => setOpenCatastropheDialog(true)}
+            sx={{ fontWeight: 600 }}
+          >
+            Trigger Catastrophe
+          </Button>
+          <Button variant="outlined" onClick={handleLogout}>
+            Logout
+          </Button>
+        </Stack>
+      </Stack>
 
-      <AdminWalletConnect />
+      <AdminWalletConnect />
 
-      {message && (
-        <Alert
-          severity={message.type}
-          onClose={() => setMessage(null)}
-          sx={{ mb: 3 }}
-        >
-          {message.text}
-        </Alert>
-      )}
+      {message && (
+        <Alert
+          severity={message.type}
+          onClose={() => setMessage(null)}
+          sx={{ mb: 3 }}
+        >
+          {message.text}
+        </Alert>
+      )}
 
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
         <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
@@ -553,7 +532,6 @@ await callSimulateDisaster(user.zip, catastropheData.type);
                     <TableCell><strong>Email</strong></TableCell>
                     <TableCell><strong>Policy ID</strong></TableCell>
                     <TableCell><strong>ZIP</strong></TableCell>
-                    <TableCell><strong>Status</strong></TableCell>
                     <TableCell><strong>Balance</strong></TableCell>
                     <TableCell><strong>Wallet</strong></TableCell>
                     <TableCell><strong>Actions</strong></TableCell>
@@ -568,13 +546,6 @@ await callSimulateDisaster(user.zip, catastropheData.type);
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{user.policyId}</TableCell>
                       <TableCell>{user.zip}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={user.status}
-                          color={user.status === "ACTIVE" ? "success" : "warning"}
-                          size="small"
-                        />
-                      </TableCell>
                       <TableCell>${(user.balance ?? 0).toFixed(2)}</TableCell>
                       <TableCell>
                         {user.walletAddress ? (
