@@ -126,7 +126,7 @@ export default function DashboardPage() {
 
   const handleLogout = async () => {
     await signOut(auth);
-    navigate("/login");
+    navigate("/");
   };
 
   if (loading) {
