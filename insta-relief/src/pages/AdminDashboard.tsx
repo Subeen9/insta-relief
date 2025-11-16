@@ -67,6 +67,9 @@ interface Catastrophe {
   createdBy: string;
 }
 
+const SIMULATE_DISASTER_URL = "https://simulatedisaster-eelyy5nzaa-uc.a.run.app";
+const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
+
 export default function AdminDashboard() {
   const [users, setUsers] = useState<UserData[]>([]);
   const [catastrophes, setCatastrophes] = useState<Catastrophe[]>([]);
@@ -88,9 +91,19 @@ export default function AdminDashboard() {
     total: number;
     currentUser?: string;
   }>({ show: false, current: 0, total: 0 });
+  const [paymentConfirmDialog, setPaymentConfirmDialog] = useState<{
+    open: boolean;
+    user?: UserData;
+    amountUSD?: number;
+    amountSOL?: number;
+    newBalance?: number;
+  }>({ open: false });
+  const [balanceInputDialog, setBalanceInputDialog] = useState<{
+    open: boolean;
+    user?: UserData;
+  }>({ open: false });
+  const [newBalanceInput, setNewBalanceInput] = useState("");
   const navigate = useNavigate();
-
-  const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
 
   useEffect(() => {
     const checkAdminAndFetchData = async () => {
@@ -154,21 +167,114 @@ export default function AdminDashboard() {
   };
 
   const handleUpdateBalance = async (userId: string, newBalance: number) => {
+    const user = users.find(u => u.id === userId);
+    
+    if (!user) {
+      setMessage({ type: "error", text: "User not found." });
+      return;
+    }
+
+    const currentBalance = user.balance ?? 0;
+    const difference = newBalance - currentBalance;
+
+    if (difference === 0) {
+      setMessage({ type: "error", text: "No balance change detected." });
+      return;
+    }
+
+    if (difference < 0) {
+      try {
+        await updateDoc(doc(db, "users", userId), {
+          balance: newBalance,
+        });
+        setMessage({ type: "success", text: `Balance decreased by $${Math.abs(difference).toFixed(2)}` });
+        await fetchUsers();
+      } catch (error) {
+        console.error(error);
+        setMessage({ type: "error", text: "Failed to update balance." });
+      }
+      return;
+    }
+
+    if (!user.walletAddress) {
+      setMessage({ type: "error", text: "User has no connected wallet address. Cannot send SOL." });
+      return;
+    }
+
+    const provider = getProvider();
+    if (!provider || !provider.publicKey) {
+      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+      return;
+    }
+
     try {
-      await updateDoc(doc(db, "users", userId), {
-        balance: newBalance,
+      const conversion = await convertUSDtoSOL(difference, 2);
+      const amountSOL = conversion.solAmount;
+
+      setPaymentConfirmDialog({
+        open: true,
+        user,
+        amountUSD: difference,
+        amountSOL,
+        newBalance,
       });
-      setMessage({ type: "success", text: "Balance updated successfully." });
-      await fetchUsers();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setMessage({ type: "error", text: "Failed to update balance." });
+      setMessage({ type: "error", text: `Failed to prepare payment: ${error.message}` });
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!paymentConfirmDialog.user || !paymentConfirmDialog.amountSOL) return;
+
+    const { user, amountUSD, amountSOL, newBalance } = paymentConfirmDialog;
+
+    try {
+      setSubmitting(true);
+      setPaymentConfirmDialog({ open: false });
+
+      const { signature, explorerUrl } = await sendSol(
+        user.walletAddress!,
+        amountSOL
+      );
+
+      console.log(`Sent ${amountSOL.toFixed(4)} SOL to ${user.email}`, explorerUrl);
+
+      await updateDoc(doc(db, "users", user.id), {
+        balance: newBalance,
+        lastPayout: new Date().toISOString(),
+        lastPayoutAmount: amountUSD,
+        status: "PAID",
+      });
+
+      setMessage({ 
+        type: "success", 
+        text: `Successfully sent ${amountSOL.toFixed(4)} SOL ($${amountUSD?.toFixed(2)})! View transaction: ${explorerUrl}` 
+      });
+
+      await fetchUsers();
+    } catch (error: any) {
+      console.error("Payment error:", error);
+      
+      if (error.message?.includes("cancelled") || error.message?.includes("rejected")) {
+        setMessage({ 
+          type: "error", 
+          text: "Transaction cancelled by user. No payment was sent and balance was not updated." 
+        });
+      } else {
+        setMessage({ 
+          type: "error", 
+          text: `Failed to send payment: ${error.message}. Balance was not updated.` 
+        });
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleAIPreparedCatastrophe = (aiData: any) => {
     console.log("AI prepared catastrophe data:", aiData);
-
+    
     setCatastropheData({
       type: aiData.formData.type,
       location: aiData.formData.location,
@@ -176,12 +282,12 @@ export default function AdminDashboard() {
       amount: aiData.formData.amount,
       description: aiData.formData.description || "",
     });
-
+    
     setOpenCatastropheDialog(true);
-
+    
     setMessage({
       type: "success",
-      text: `AI auto-filled catastrophe form. ${aiData.analysis?.usersWithWallet || 0} users ready. Review and confirm to execute.`,
+      text: `AI auto-filled catastrophe form! ${aiData.analysis?.usersWithWallet || 0} users ready. Review and confirm to execute.`,
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -201,12 +307,27 @@ export default function AdminDashboard() {
       `This will send real cryptocurrency to ${affectedCount} user(s).\n\n` +
       `Type: ${catastropheData.type}\n` +
       `Location: ${catastropheData.location}\n` +
-      `Amount per user: $${catastropheData.amount} (${parseFloat(catastropheData.amount) / 100} SOL)\n\n` +
+      `Amount per user: $${catastropheData.amount}\n\n` +
       `Do you want to proceed?`
     );
 
     if (confirmed) {
       handleTriggerCatastrophe();
+    }
+  };
+
+  const callSimulateDisaster = async (zip: string, eventType: string) => {
+    try {
+      const response = await fetch(
+        `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED&event=${eventType}`
+      ); 
+      if (!response.ok) {
+        console.error("Failed to trigger backend email:", await response.text());
+      } else {
+        console.log(`Confirmation email triggered for ${eventType}.`);
+      }
+    } catch (error) {
+      console.error("Network error triggering simulateDisaster:", error);
     }
   };
 
@@ -248,9 +369,6 @@ export default function AdminDashboard() {
         return;
       }
 
-      const estimatedTotalSOL = affectedUsers.length * amountSOL;
-      console.log(`Estimated total cost: ${estimatedTotalSOL.toFixed(4)} SOL for ${affectedUsers.length} users`);
-
       const payoutResults = [];
       for (let i = 0; i < affectedUsers.length; i++) {
         const user = affectedUsers[i];
@@ -267,6 +385,8 @@ export default function AdminDashboard() {
             user.walletAddress,
             amountSOL
           );
+
+          await callSimulateDisaster(user.zip, catastropheData.type);
 
           await updateDoc(doc(db, "users", user.id), {
             balance: (user.balance ?? 0) + amountUSD,
@@ -412,7 +532,6 @@ export default function AdminDashboard() {
                     <TableCell><strong>Email</strong></TableCell>
                     <TableCell><strong>Policy ID</strong></TableCell>
                     <TableCell><strong>ZIP</strong></TableCell>
-                    <TableCell><strong>Status</strong></TableCell>
                     <TableCell><strong>Balance</strong></TableCell>
                     <TableCell><strong>Wallet</strong></TableCell>
                     <TableCell><strong>Actions</strong></TableCell>
@@ -427,13 +546,6 @@ export default function AdminDashboard() {
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{user.policyId}</TableCell>
                       <TableCell>{user.zip}</TableCell>
-                      <TableCell>
-                        <Chip
-                          label={user.status}
-                          color={user.status === "ACTIVE" ? "success" : "warning"}
-                          size="small"
-                        />
-                      </TableCell>
                       <TableCell>${(user.balance ?? 0).toFixed(2)}</TableCell>
                       <TableCell>
                         {user.walletAddress ? (
@@ -446,14 +558,10 @@ export default function AdminDashboard() {
                         <Button
                           size="small"
                           onClick={() => {
-                            const newBalance = prompt(
-                              `Enter new balance for ${user.firstName} ${user.lastName}:`,
-                              (user.balance ?? 0).toString()
-                            );
-                            if (newBalance !== null) {
-                              handleUpdateBalance(user.id, parseFloat(newBalance));
-                            }
+                            setBalanceInputDialog({ open: true, user });
+                            setNewBalanceInput((user.balance ?? 0).toString());
                           }}
+                          disabled={submitting}
                         >
                           Update Balance
                         </Button>
@@ -607,6 +715,138 @@ export default function AdminDashboard() {
             </Typography>
           </Stack>
         </DialogContent>
+      </Dialog>
+
+      <Dialog 
+        open={balanceInputDialog.open} 
+        onClose={() => setBalanceInputDialog({ open: false })}
+        maxWidth="xs" 
+        fullWidth
+      >
+        <DialogTitle>Update Balance</DialogTitle>
+        
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="User"
+              value={`${balanceInputDialog.user?.firstName} ${balanceInputDialog.user?.lastName}`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="Current Balance"
+              value={`$${(balanceInputDialog.user?.balance ?? 0).toFixed(2)}`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="New Balance"
+              type="number"
+              fullWidth
+              autoFocus
+              value={newBalanceInput}
+              onChange={(e) => setNewBalanceInput(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  const newBalance = parseFloat(newBalanceInput);
+                  if (!isNaN(newBalance) && balanceInputDialog.user) {
+                    handleUpdateBalance(balanceInputDialog.user.id, newBalance);
+                    setBalanceInputDialog({ open: false });
+                  }
+                }
+              }}
+            />
+          </Stack>
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setBalanceInputDialog({ open: false })}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              const newBalance = parseFloat(newBalanceInput);
+              if (!isNaN(newBalance) && balanceInputDialog.user) {
+                handleUpdateBalance(balanceInputDialog.user.id, newBalance);
+                setBalanceInputDialog({ open: false });
+              }
+            }}
+            variant="contained"
+          >
+            Update
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog 
+        open={paymentConfirmDialog.open} 
+        onClose={() => !submitting && setPaymentConfirmDialog({ open: false })}
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Confirm SOL Payment</DialogTitle>
+        
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            This will send real cryptocurrency. This action cannot be undone.
+          </Alert>
+
+          <Stack spacing={2}>
+            <TextField
+              label="Recipient"
+              value={`${paymentConfirmDialog.user?.firstName} ${paymentConfirmDialog.user?.lastName}`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="Email"
+              value={paymentConfirmDialog.user?.email || ""}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="Wallet Address"
+              value={paymentConfirmDialog.user?.walletAddress || ""}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="Amount (USD)"
+              value={`$${paymentConfirmDialog.amountUSD?.toFixed(2)}`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="Amount (SOL)"
+              value={`${paymentConfirmDialog.amountSOL?.toFixed(4)} SOL`}
+              fullWidth
+              disabled
+            />
+            <TextField
+              label="New Balance"
+              value={`$${paymentConfirmDialog.newBalance?.toFixed(2)}`}
+              fullWidth
+              disabled
+            />
+          </Stack>
+        </DialogContent>
+
+        <DialogActions>
+          <Button 
+            onClick={() => setPaymentConfirmDialog({ open: false })} 
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmPayment}
+            variant="contained"
+            color="error"
+            disabled={submitting}
+          >
+            {submitting ? "Sending..." : "Confirm Payment"}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Container>
   );

@@ -17,8 +17,10 @@
     "@solana/web3.js": "^1.98.4",
     "firebase": "^12.6.0",
     "firebase-admin": "^13.6.0",
+    "leaflet": "^1.9.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.9.6"
   },
   "devDependencies": {

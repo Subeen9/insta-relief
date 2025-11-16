@@ -365,33 +365,117 @@ exports.checkUsers = functions.https.onRequest(async (req, res) => {
   }
 });
 
-exports.disaster = functions.https.onCall(async (data, context) => {
-  const { zip, severity = "Extreme" } = data;
-
+exports.disaster = functions.https.onCall(async (request, context) => {
+  const zip = request.data.zip;
   if (!zip) {
     throw new functions.https.HttpsError(
       "invalid-argument",
-      "ZIP code is required"
+      "Zip code is required"
     );
   }
 
-  const fakeAlert = {
-    properties: {
-      id: "sim-" + Date.now(),
-      event: data.event || "Simulated Disaster",
-      severity,
-      areaDesc: data.areaDesc || zipToCounty[zip] || "Unknown",
-      headline: data.headline || `Test Alert for ZIP ${zip}`,
-      description: data.description || "Simulated alert.",
-    },
-  };
+  console.log(`Searching for users in ZIP ${zip}`);
 
-  const pay = shouldSendPayout(severity);
-  await handleZipAlert(zip, fakeAlert, pay);
+  const smtpConfig = functions.config().smtp2go || {};
+  if (!smtpConfig.api_key) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "Missing SMTP2GO API key"
+    );
+  }
+
+  const userRef = db.collection("users");
+  const userSnap = await userRef.where("zip", "==", zip).get();
+
+  console.log(`Found ${userSnap.size} user(s) in ZIP ${zip}`);
+
+  if (userSnap.empty) {
+    return { message: `No user found in ${zip}` };
+  }
+
+  // Filter users who haven't been paid in last 1 hour
+  const now = Date.now();
+  const oneHour = 60 * 60 * 1000;
+  const eligibleUsers = [];
+
+  for (const userDoc of userSnap.docs) {
+    const userData = userDoc.data();
+    const lastPayout = userData.lastPayout
+      ? new Date(userData.lastPayout).getTime()
+      : 0;
+
+    if (now - lastPayout >= oneHour) {
+      eligibleUsers.push(userDoc);
+    } else {
+      console.log(
+        `Skipping ${userData.email} - paid ${Math.round(
+          (now - lastPayout) / 60000
+        )} minutes ago`
+      );
+    }
+  }
+
+  console.log(`${eligibleUsers.length} eligible user(s) after filtering`);
+
+  if (eligibleUsers.length === 0) {
+    return {
+      message: `No eligible users in ${zip} (all paid within last hour)`,
+    };
+  }
+
+  const result = [];
+  const errors = [];
+
+  for (const user of eligibleUsers) {
+    const userData = user.data();
+    const email = userData.email;
+
+    const name =
+      userData.name ||
+      userData.firstName ||
+      (typeof email === "string" ? email.split("@")[0] : "Customer");
+
+    console.log(`Processing payout for ${email}`);
+
+    try {
+      await user.ref.update({
+        balance: (userData.balance || 0) + 100,
+        lastPayout: new Date().toISOString(),
+      });
+
+      const emailResponse = await sendEmail(
+        smtpConfig.api_key,
+        [`${name} <${email}>`],
+        "Disaster Alert <niraj.bhatta@selu.edu>",
+        "🚨 Flood Alert - Emergency Fund Released",
+        `
+          <h2 style="color:red;">🚨 Flood Alert</h2>
+          <p>Dear ${name},</p>
+          <p>Your micro-insurance policy has been triggered for ZIP <b>${zip}</b>.</p>
+          <p><strong>$100 has been released to your emergency fund.</strong></p>
+          <p>Current balance: $${(userData.balance || 0) + 100}</p>
+          <p>Stay safe,<br/>Disaster Alert System</p>
+        `,
+        `Dear ${name},\n\nYour policy has been triggered for ZIP ${zip}. $100 has been released to your emergency fund.\n\nCurrent balance: $${
+          (userData.balance || 0) + 100
+        }\n\nStay safe.`
+      );
+
+      console.log(`Email sent to ${email}`, emailResponse);
+      result.push(email);
+    } catch (err) {
+      console.error(`❌ Failed to process ${email}:`, err);
+      errors.push({
+        email,
+        error: err.message || "Unknown error",
+      });
+    }
+  }
 
   return {
-    message: `Simulated alert processed for ZIP ${zip} and payout sent: ${pay}`,
-    payoutSent: pay,
+    message: `Triggered payouts for ${result.length} user(s).`,
+    emails: result,
+    errors: errors.length > 0 ? errors : undefined,
   };
 });
 
@@ -942,7 +1026,6 @@ Balance updated for ${balanceUpdates.length} users, but NONE have Phantom wallet
     if (iterationCount >= maxIterations) {
       return res.status(500).json({ error: "Max iterations reached" });
     }
-
   } catch (error) {
     console.error("AI Agent Error:", error);
     return res.status(500).json({ error: error.message });
