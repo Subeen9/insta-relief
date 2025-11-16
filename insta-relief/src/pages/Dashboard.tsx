@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ChangeEvent } from "react";
 import {
   Box,
   Button,
@@ -77,22 +78,38 @@ export default function DashboardPage() {
   }>({ open: false });
   const navigate = useNavigate();
 
+  // ---------- Pagination handlers ----------
+  const handleChangePage = (_event: unknown, newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event: ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const paginatedData = transactions.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  // ---------- Firestore fetches ----------
   const fetchTransactions = async (userZip: string) => {
     try {
       const catastrophesRef = collection(db, "catastrophes");
       const q = query(catastrophesRef, orderBy("createdAt", "desc"));
       const querySnapshot = await getDocs(q);
-      
+
       const userTransactions: Transaction[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
+      querySnapshot.forEach((d) => {
+        const data = d.data();
         if (data.zipCodes && data.zipCodes.includes(userZip)) {
           const payoutResult = data.payoutResults?.find(
             (r: any) => r.email === auth.currentUser?.email
           );
-          
+
           userTransactions.push({
-            id: doc.id,
+            id: d.id,
             type: data.type,
             location: data.location,
             amount: data.amount,
@@ -105,7 +122,7 @@ export default function DashboardPage() {
           });
         }
       });
-      
+
       setTransactions(userTransactions);
     } catch (error) {
       console.error("Error fetching transactions:", error);
@@ -150,9 +167,23 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, [navigate]);
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
+      if (
+        error.message?.includes("cancelled") ||
+        error.message?.includes("rejected")
+      ) {
+        setMessage({
+          type: "error",
+          text: "Transaction cancelled. Your balance has not been changed.",
+        });
+      } else {
+        setMessage({
+          type: "error",
+          text: `Withdrawal failed: ${error.message}`,
+        });
+      }
+    } finally {
+      setWithdrawing(false);
+    }
   };
 
   const handleWithdrawClick = () => {
@@ -301,8 +332,14 @@ export default function DashboardPage() {
 
   if (!userData) return null;
 
-  const isActive = userData.status === "ACTIVE";
+  const isActive =
+    userData.status === "ACTIVE" ||
+    userData.status === "PAID" ||
+    userData.status === "Paid";
 
+  // ============================================================
+  //                        RENDER
+  // ============================================================
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Stack spacing={4}>
@@ -365,33 +402,189 @@ export default function DashboardPage() {
               )}
             </Stack>
 
-            <Box
+      <Container maxWidth="lg" sx={{ py: 5 }}>
+        <Stack spacing={4}>
+          {/* Global alert (withdraw status, errors, etc.) */}
+          {message && (
+            <Alert
+              severity={message.type}
+              onClose={() => setMessage(null)}
               sx={{
-                p: 3,
                 borderRadius: 3,
-                backgroundColor: isActive
-                  ? "rgba(14,159,110,0.15)"
-                  : "rgba(251,191,36,0.15)",
-                textAlign: "center",
-                mb: 2,
-                transition: "0.3s ease",
+                backgroundColor:
+                  message.type === "success"
+                    ? "rgba(16,185,129,0.1)"
+                    : "rgba(239,68,68,0.1)",
+                border:
+                  message.type === "success"
+                    ? "1px solid rgba(16,185,129,0.4)"
+                    : "1px solid rgba(239,68,68,0.5)",
+                color: "#E5E7EB",
               }}
+              action={
+                message.explorerUrl ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() =>
+                      window.open(message.explorerUrl, "_blank")
+                    }
+                  >
+                    View Transaction
+                  </Button>
+                ) : undefined
+              }
             >
-              <Typography
-                variant="h6"
+              {message.text}
+            </Alert>
+          )}
+
+          {/* HERO POLICY CARD */}
+          <Card
+            sx={{
+              borderRadius: 6,
+              px: { xs: 3, md: 6 },
+              py: { xs: 4, md: 5 },
+              background:
+                "radial-gradient(circle at top, #1f2937 0, #020617 55%)",
+              boxShadow: "0 26px 60px rgba(0,0,0,0.75)",
+              border: "1px solid rgba(15, 185, 129, 0.25)",
+            }}
+          >
+            <CardContent sx={{ p: 0 }}>
+              {/* Top Row */}
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems={{ xs: "flex-start", md: "center" }}
+                sx={{ mb: 4 }}
+              >
+                <Typography
+                  variant="h4"
+                  sx={{
+                    fontWeight: 900,
+                    letterSpacing: 0.5,
+                    color: "#E5E7EB",
+                  }}
+                >
+                  Policy Dashboard
+                </Typography>
+
+                <Chip
+                  icon={<ShieldOutlinedIcon sx={{ fontSize: 18 }} />}
+                  label={userData.status.toUpperCase()}
+                  color={isActive ? "success" : "warning"}
+                  sx={{
+                    fontWeight: 700,
+                    px: 1,
+                    backgroundColor: isActive
+                      ? "rgba(16,185,129,0.16)"
+                      : "rgba(245,158,11,0.18)",
+                  }}
+                />
+              </Stack>
+
+              {/* User Info + Wallet */}
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                justifyContent="space-between"
+                alignItems={{ xs: "flex-start", md: "center" }}
+                spacing={3}
+                sx={{ mb: 4 }}
+              >
+                <Box>
+                  <Typography
+                    variant="h5"
+                    sx={{ fontWeight: 700, color: "#F9FAFB", mb: 0.5 }}
+                  >
+                    {userData.firstName} {userData.lastName}
+                  </Typography>
+
+                  <Typography
+                    variant="body2"
+                    sx={{ color: "rgba(148,163,184,0.9)", mb: 0.3 }}
+                  >
+                    {userData.email}
+                  </Typography>
+
+                  <Stack
+                    direction="row"
+                    spacing={1.5}
+                    alignItems="center"
+                    sx={{ color: "rgba(148,163,184,0.9)" }}
+                  >
+                    <LocationOnOutlinedIcon sx={{ fontSize: 18 }} />
+                    <Typography variant="body2">
+                      ZIP Code: <strong>{userData.zip}</strong>
+                    </Typography>
+                  </Stack>
+                </Box>
+
+                {userData.walletAddress && (
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={1}
+                    sx={{
+                      px: 2,
+                      py: 1.2,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(15,23,42,0.85)",
+                      border: "1px solid rgba(148,163,184,0.35)",
+                    }}
+                  >
+                    <AccountBalanceWalletOutlinedIcon
+                      sx={{ fontSize: 20, color: "#10B981" }}
+                    />
+                    <Typography
+                      variant="body2"
+                      sx={{ color: "rgba(209,213,219,0.95)" }}
+                    >
+                      {userData.walletAddress.slice(0, 6)}...
+                      {userData.walletAddress.slice(-6)}
+                    </Typography>
+                  </Stack>
+                )}
+              </Stack>
+
+              {/* Status + Balance + Withdraw CTA */}
+              <Box
                 sx={{
-                  fontWeight: 700,
-                  color: isActive ? "success.main" : "warning.main",
-                  mb: 1,
+                  mt: 1,
+                  p: { xs: 2.5, md: 3 },
+                  borderRadius: 4,
+                  background:
+                    "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(15,118,110,0.35))",
+                  border: "1px solid rgba(15,185,129,0.5)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  textAlign: "center",
+                  gap: 0.6,
                 }}
               >
-                Status: {userData.status}
-              </Typography>
+                <Typography
+                  variant="subtitle1"
+                  sx={{ fontWeight: 700, color: "#FACC15" }}
+                >
+                  Status:&nbsp;
+                  <span style={{ color: "#FACC15" }}>
+                    {userData.status.toUpperCase()}
+                  </span>
+                </Typography>
 
-              <Typography variant="body1" sx={{ mb: 0.5 }}>
-                Policy ID:&nbsp;
-                <strong style={{ color: "#1E3A8A" }}>{userData.policyId}</strong>
-              </Typography>
+                <Typography variant="body2" sx={{ color: "#CBD5F5" }}>
+                  Policy ID:&nbsp;
+                  <Link
+                    sx={{
+                      color: "#60A5FA",
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    {userData.policyId}
+                  </Link>
+                </Typography>
 
               <Typography variant="body1" sx={{ mb: 2 }}>
                 Emergency Fund Balance:&nbsp;
