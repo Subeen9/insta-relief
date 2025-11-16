@@ -47,6 +47,8 @@ interface Transaction {
   status: string;
   signature?: string;
   explorerUrl?: string;
+          exchangeRate?: number;
+
 }
 
 export default function DashboardPage() {
@@ -75,6 +77,7 @@ export default function DashboardPage() {
             location: data.location,
             amount: data.amount,
             amountSOL: data.amountSOL,
+            exchangeRate: data.exchangeRate,
             createdAt: data.createdAt,
             status: payoutResult?.success ? "Completed" : "Failed",
             signature: payoutResult?.signature,
@@ -245,6 +248,7 @@ export default function DashboardPage() {
                       <TableCell><strong>Amount (SOL)</strong></TableCell>
                       <TableCell><strong>Status</strong></TableCell>
                       <TableCell><strong>Blockchain</strong></TableCell>
+                      <TableCell><strong>Exchange Rate</strong></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -279,7 +283,11 @@ export default function DashboardPage() {
                               N/A
                             </Typography>
                           )}
+         
                         </TableCell>
+                                         <TableCell>
+  {tx.exchangeRate ? `$${tx.exchangeRate.toFixed(2)}/SOL` : 'N/A'}
+</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
