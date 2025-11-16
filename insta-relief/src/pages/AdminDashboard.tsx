@@ -233,7 +233,7 @@ export default function AdminDashboard() {
       setSubmitting(true);
       setPaymentConfirmDialog({ open: false });
 
-      const { signature, explorerUrl } = await sendSol(
+      const { explorerUrl } = await sendSol(
         user.walletAddress!,
         amountSOL
       );
