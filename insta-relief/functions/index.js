@@ -1,13 +1,53 @@
-import * as dotenv from "dotenv";
+const dotenv = require("dotenv");
 dotenv.config();
+
+const fetch = require("node-fetch");
 
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const { sendEmail } = require("./utils/email");
+const { Anthropic } = require("@anthropic-ai/sdk");
 const zipToCounty = require("./data/zip_to_county.json");
 
+// Initialization
 admin.initializeApp();
 const db = admin.firestore();
+
+// -----------------------------------------------------
+// 2. SMTP Email Utility (Defined Inline)
+// -----------------------------------------------------
+/**
+ * Sends an email using the SMTP2GO API.
+ * This replaces the imported sendEmail from "./utils/email".
+ */
+async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
+  const response = await fetch("https://api.smtp2go.com/v3/email/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Smtp2go-Api-Key": apiKey,
+    },
+    body: JSON.stringify({
+      to,
+      sender,
+      subject,
+      html_body: htmlBody,
+      text_body: textBody,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    // Use the error message from the response if available
+    const errorDetail = err.data ? JSON.stringify(err.data) : JSON.stringify(err);
+    throw new Error(`SMTP2GO error: ${errorDetail}`);
+  }
+
+  return response.json();
+}
+
+// -----------------------------------------------------
+// 3. Core Payout & Alert Helpers
+// -----------------------------------------------------
 
 /**
  * Helper: Should we send payout?
@@ -23,22 +63,25 @@ function shouldSendPayout(severity) {
 function mapAreaToZips(areaDesc) {
   if (!areaDesc) return [];
 
-  // Convert to lowercase for matching
   const area = areaDesc.toLowerCase();
-  
+
+  // NOTE: This assumes zipToCounty maps county names (keys) to ZIPs (values).
+  // If zipToCounty maps ZIPs (keys) to county names (values), the filter logic needs adjustment.
+  // Assuming the original logic intended to check if the areaDesc includes a known key (ZIP or County name)
   return Object.entries(zipToCounty)
-    .filter(([key, zip]) => area.includes(key.toLowerCase()))
-    .map(([key, zip]) => zip);
+    .filter(([key, value]) => area.includes(key.toLowerCase())) // Filter by key (County/Area name)
+    .map(([key, zip]) => zip); // Map to the ZIP code (value)
 }
 
 /**
  * Process a single user for a given alert
  */
 async function handleUserAlert(doc, alert, pay) {
-  const smtpConfig = process.env.SMTP2GO_API_KEY
-  
-  if (!smtpConfig || !smtpConfig.api_key) {
-    console.error("❌ SMTP config missing! Run: firebase functions:config:set smtp2go.api_key=YOUR_KEY");
+  // Use process.env for the key, as it's the standard way to access Firebase Environment configuration
+  const smtpApiKey = functions.config().smtp2go?.api_key || process.env.SMTP2GO_API_KEY;
+
+  if (!smtpApiKey) {
+    console.error("❌ SMTP API key missing! Configure with: firebase functions:config:set smtp2go.api_key=YOUR_KEY");
     return;
   }
 
@@ -54,7 +97,7 @@ async function handleUserAlert(doc, alert, pay) {
     id: alertId
   } = alert.properties;
 
-  //  Prevent user spam — only 1 alert every 30 mins
+  // Prevent user spam — only 1 alert every 30 mins
   const lastSent = user.lastAlertTimestamp || 0;
   if (Date.now() - lastSent < 30 * 60 * 1000) {
     console.log(`⏳ Skipping ${user.email} (rate limited)`);
@@ -69,7 +112,7 @@ async function handleUserAlert(doc, alert, pay) {
     <p><b>Area:</b> ${areaDesc}</p>
   `;
 
-  //  Use Firestore transaction for payout updates
+  // Use Firestore transaction for payout updates
   if (pay) {
     subject = `🚨 Emergency Fund Released: ${event}`;
     html += `<p><strong>$100 has been released to your emergency fund.</strong></p>`;
@@ -85,7 +128,7 @@ async function handleUserAlert(doc, alert, pay) {
     });
   }
 
-  //  Update "last alert info" to prevent spam
+  // Update "last alert info" to prevent spam
   await doc.ref.update({
     lastAlertTimestamp: Date.now(),
     lastAlertId: alertId,
@@ -93,7 +136,7 @@ async function handleUserAlert(doc, alert, pay) {
 
   try {
     await sendEmail(
-      smtpConfig,
+      smtpApiKey,
       [`${name} <${user.email}>`],
       "Disaster Alert <subin.bista@selu.edu>",
       subject,
@@ -183,6 +226,11 @@ async function fetchNoaaAlertsHandler() {
   };
 }
 
+
+// -----------------------------------------------------
+// 4. Exported Cloud Functions (HTTP & Callable)
+// -----------------------------------------------------
+
 /**
  * HTTP trigger - Fetches real NOAA alerts and sends emails
  */
@@ -230,14 +278,12 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
   }
 
   try {
-    // Get ZIP from query params or body
-    const zip = req.query.zip || req.body?.zip || "70401"; // Default: Hammond, LA
+    const zip = req.query.zip || req.body?.zip || "70401"; 
     const severity = req.query.severity || req.body?.severity || "Extreme";
     const event = req.query.event || req.body?.event || "Hurricane";
 
     console.log(`🎭 Simulating ${event} (${severity}) for ZIP ${zip}`);
 
-    // Create fake alert
     const fakeAlert = {
       properties: {
         id: "demo-" + Date.now(),
@@ -245,7 +291,7 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
         severity: severity,
         areaDesc: zipToCounty[zip] || `Area for ZIP ${zip}`,
         headline: `${event} Warning - Emergency Alert System Activated`,
-        description: `This is a SIMULATED ${event} alert for demonstration purposes. A ${severity.toLowerCase()} weather event has been detected in your area. Immediate action is recommended. Take shelter and follow emergency protocols.`,
+        description: `This is a SIMULATED ${event} alert for demonstration purposes. A ${severity.toLowerCase()} weather event has been detected in your area.`,
       },
     };
 
@@ -273,7 +319,6 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
 
 /**
  * TEST ENDPOINT - Check which users would be notified for a ZIP
- * Doesn't send emails, just returns info
  */
 exports.checkUsers = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
@@ -323,8 +368,9 @@ exports.checkUsers = functions.https.onRequest(async (req, res) => {
   }
 });
 
+
 /**
- * Manual simulation (callable from frontend) - For testing with specific ZIP
+ * Manual simulation (callable from frontend) - Handles both versions of the logic
  */
 exports.disaster = functions.https.onCall(async (data, context) => {
   const { zip, severity = "Extreme" } = data;
@@ -336,6 +382,7 @@ exports.disaster = functions.https.onCall(async (data, context) => {
     );
   }
 
+  // --- LOGIC FROM THE FIRST BLOCK (Handle NOAA Style) ---
   const fakeAlert = {
     properties: {
       id: "sim-" + Date.now(),
@@ -351,7 +398,65 @@ exports.disaster = functions.https.onCall(async (data, context) => {
   await handleZipAlert(zip, fakeAlert, pay);
 
   return {
-    message: `Simulated alert processed for ZIP ${zip}`,
+    message: `Simulated alert processed for ZIP ${zip} and payout sent: ${pay}`,
     payoutSent: pay,
   };
+});
+
+
+// -----------------------------------------------------
+// 5. Claude AI Admin Agent
+// -----------------------------------------------------
+
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY,
+});
+
+exports.adminAgent = functions.https.onRequest(async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.set("Access-Control-Allow-Methods", "POST");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.status(204).send("");
+    return;
+  }
+
+  try {
+    const { query } = req.body;
+
+    if (!query) {
+      return res.status(400).json({ error: "Missing query" });
+    }
+
+    const response = await anthropic.messages.create({
+      model: "claude-3-5-sonnet",
+      max_tokens: 600,
+      messages: [
+        {
+          role: "system",
+          content: `
+            You are the Admin Automation Agent.
+            You help create fake disaster scenarios,
+            analyze data, and support admin workflows.
+            Always output clean JSON when possible.
+          `
+        },
+        {
+          role: "user",
+          content: query
+        }
+      ]
+    });
+
+    // The response content is an array of content blocks; extract the text.
+    const responseText = response.content.map(block => block.text).join('\n');
+    
+    return res.json({ response: responseText });
+
+  } catch (error) {
+    console.error("Claude Error:", error);
+    return res.status(500).json({ error: error.message });
+  }
 });
