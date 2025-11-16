@@ -39,6 +39,7 @@ import {
 import { signOut } from "firebase/auth";
 import AdminWalletConnect from "../components/AdminWalletConnect";
 import { sendSol, getProvider } from "../lib/solana";
+import { convertUSDtoSOL } from "../lib/priceService";
 
 interface UserData {
   id: string;
@@ -201,8 +202,9 @@ export default function AdminDashboard() {
     try {
       const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
       const amountUSD = parseFloat(catastropheData.amount);
-      const amountSOL = amountUSD / 100;
-
+      const conversion = await convertUSDtoSOL(amountUSD, 2); 
+      const amountSOL = conversion.solAmount;
+      const exchangeRate = conversion.exchangeRate;
       const usersSnapshot = await getDocs(collection(db, "users"));
       const affectedUsers: any[] = [];
       
