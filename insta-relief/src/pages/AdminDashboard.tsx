@@ -40,8 +40,6 @@ import { signOut } from "firebase/auth";
 import AdminWalletConnect from "../components/AdminWalletConnect";
 import AIAssistant from "../components/AIAssistant";
 import { sendSol, getProvider } from "../lib/solana";
-import { convertUSDtoSOL } from "../lib/priceService";
-
 interface UserData {
   id: string;
   firstName: string;
@@ -90,9 +88,8 @@ export default function AdminDashboard() {
   }>({ show: false, current: 0, total: 0 });
   const navigate = useNavigate();
 
-  // ✅ REPLACE THIS WITH YOUR ACTUAL CLOUD FUNCTION URL
-  // Example: https://us-central1-your-project-id.cloudfunctions.net/adminAgent
   const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
+
   useEffect(() => {
     const checkAdminAndFetchData = async () => {
       const currentUser = auth.currentUser;
@@ -159,7 +156,7 @@ export default function AdminDashboard() {
       await updateDoc(doc(db, "users", userId), {
         balance: newBalance,
       });
-      setMessage({ type: "success", text: "Balance updated successfully!" });
+      setMessage({ type: "success", text: "Balance updated successfully." });
       await fetchUsers();
     } catch (error) {
       console.error(error);
@@ -167,11 +164,9 @@ export default function AdminDashboard() {
     }
   };
 
-  // ✅ NEW: Handle AI-prepared catastrophe data
   const handleAIPreparedCatastrophe = (aiData: any) => {
-    console.log("🤖 AI prepared catastrophe data:", aiData);
-    
-    // Auto-fill the catastrophe dialog with AI data
+    console.log("AI prepared catastrophe data:", aiData);
+
     setCatastropheData({
       type: aiData.formData.type,
       location: aiData.formData.location,
@@ -179,31 +174,28 @@ export default function AdminDashboard() {
       amount: aiData.formData.amount,
       description: aiData.formData.description || "",
     });
-    
-    // Open the catastrophe dialog
+
     setOpenCatastropheDialog(true);
-    
-    // Show success message
+
     setMessage({
       type: "success",
-      text: `✅ AI auto-filled catastrophe form! ${aiData.analysis?.usersWithWallet || 0} users ready. Review and confirm to execute.`,
+      text: `AI auto-filled catastrophe form. ${aiData.analysis?.usersWithWallet || 0} users ready. Review and confirm to execute.`,
     });
 
-    // Scroll to top to see the dialog
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleConfirmTrigger = () => {
     const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
     const affectedCount = users.filter(u => zipCodesArray.includes(u.zip) && u.walletAddress).length;
-    
+
     if (affectedCount === 0) {
       setMessage({ type: "error", text: "No users will be affected by these ZIP codes." });
       return;
     }
 
     const confirmed = window.confirm(
-      `⚠️ CONFIRM CATASTROPHE TRIGGER\n\n` +
+      `CONFIRM CATASTROPHE TRIGGER\n\n` +
       `This will send real cryptocurrency to ${affectedCount} user(s).\n\n` +
       `Type: ${catastropheData.type}\n` +
       `Location: ${catastropheData.location}\n` +
@@ -224,7 +216,7 @@ export default function AdminDashboard() {
 
     const provider = getProvider();
     if (!provider || !provider.publicKey) {
-      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+      setMessage({ type: "error", text: "Please connect your Phantom wallet first." });
       return;
     }
 
@@ -232,12 +224,11 @@ export default function AdminDashboard() {
     try {
       const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
       const amountUSD = parseFloat(catastropheData.amount);
-      const conversion = await convertUSDtoSOL(amountUSD, 2); 
-      const amountSOL = conversion.solAmount;
-      const exchangeRate = conversion.exchangeRate;
+      const amountSOL = amountUSD / 100;
+
       const usersSnapshot = await getDocs(collection(db, "users"));
       const affectedUsers: any[] = [];
-      
+
       usersSnapshot.forEach((userDoc) => {
         const userData = userDoc.data();
         if (zipCodesArray.includes(userData.zip) && userData.walletAddress) {
@@ -255,12 +246,12 @@ export default function AdminDashboard() {
       }
 
       const estimatedTotalSOL = affectedUsers.length * amountSOL;
-      console.log(`💰 Estimated total cost: ${estimatedTotalSOL.toFixed(4)} SOL for ${affectedUsers.length} users`);
+      console.log(`Estimated total cost: ${estimatedTotalSOL.toFixed(4)} SOL for ${affectedUsers.length} users`);
 
       const payoutResults = [];
       for (let i = 0; i < affectedUsers.length; i++) {
         const user = affectedUsers[i];
-        
+
         setProcessingStatus({
           show: true,
           current: i + 1,
@@ -289,9 +280,9 @@ export default function AdminDashboard() {
             explorerUrl,
           });
 
-          console.log(`✅ Sent ${amountSOL} SOL to ${user.email}`, explorerUrl);
+          console.log(`Sent ${amountSOL} SOL to ${user.email}`, explorerUrl);
         } catch (error: any) {
-          console.error(`❌ Failed to send to ${user.email}:`, error);
+          console.error(`Failed to send to ${user.email}:`, error);
           payoutResults.push({
             userId: user.id,
             email: user.email,
@@ -309,8 +300,6 @@ export default function AdminDashboard() {
         zipCodes: zipCodesArray,
         amount: amountUSD,
         amountSOL: amountSOL,
-        exchangeRate: exchangeRate,
-        priceTimestamp: conversion.timestamp,
         description: catastropheData.description,
         createdAt: new Date().toISOString(),
         createdBy: auth.currentUser?.email,
@@ -325,7 +314,7 @@ export default function AdminDashboard() {
 
       setMessage({
         type: successCount > 0 ? "success" : "error",
-        text: `Catastrophe triggered! ${successCount} successful payouts, ${failCount} failed. Check console for details.`,
+        text: `Catastrophe triggered. ${successCount} successful payouts, ${failCount} failed.`,
       });
 
       setOpenCatastropheDialog(false);
@@ -336,7 +325,7 @@ export default function AdminDashboard() {
         amount: "",
         description: "",
       });
-      
+
       await fetchUsers();
       await fetchCatastrophes();
     } catch (error: any) {
@@ -396,16 +385,14 @@ export default function AdminDashboard() {
         </Alert>
       )}
 
-      {/* ✅ TABS: Users, Catastrophes, AI Assistant */}
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
         <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
           <Tab label={`Users (${users.length})`} />
           <Tab label={`Catastrophes (${catastrophes.length})`} />
-          <Tab label="🤖 AI Assistant" />
+          <Tab label="AI Assistant" />
         </Tabs>
       </Box>
 
-      {/* ========== TAB 0: USERS TABLE ========== */}
       {tabValue === 0 && (
         <Card>
           <CardContent>
@@ -475,7 +462,6 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      {/* ========== TAB 1: CATASTROPHES TABLE ========== */}
       {tabValue === 1 && (
         <Card>
           <CardContent>
@@ -516,7 +502,6 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      {/* ========== TAB 2: AI ASSISTANT ========== */}
       {tabValue === 2 && (
         <AIAssistant
           functionUrl={AI_FUNCTION_URL}
@@ -524,7 +509,6 @@ export default function AdminDashboard() {
         />
       )}
 
-      {/* ========== CATASTROPHE DIALOG ========== */}
       <Dialog
         open={openCatastropheDialog}
         onClose={() => setOpenCatastropheDialog(false)}
@@ -598,7 +582,6 @@ export default function AdminDashboard() {
         </DialogActions>
       </Dialog>
 
-      {/* ========== PROCESSING DIALOG ========== */}
       <Dialog open={processingStatus.show} maxWidth="sm" fullWidth>
         <DialogContent>
           <Stack spacing={2} alignItems="center" sx={{ py: 3 }}>
@@ -615,7 +598,7 @@ export default function AdminDashboard() {
               </Typography>
             )}
             <Typography variant="caption" color="warning.main">
-              Please don't close this window
+              Please do not close this window
             </Typography>
           </Stack>
         </DialogContent>
