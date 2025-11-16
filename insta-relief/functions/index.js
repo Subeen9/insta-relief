@@ -6,9 +6,6 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
-// ----------------------
-// EMAIL SENDER
-// ----------------------
 async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
   const response = await fetch("https://api.smtp2go.com/v3/email/send", {
     method: "POST",
@@ -33,9 +30,6 @@ async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
   return response.json();
 }
 
-// ----------------------
-// YOUR EXISTING FUNCTION (unchanged)
-// ----------------------
 exports.disaster = functions.https.onCall(async (request, context) => {
   const zip = request.data.zip;
   if (!zip) {
