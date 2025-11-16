@@ -14,7 +14,6 @@ try {
 } catch (error) {
   process.exit(1);
 }
-
 /**
  * Set admin for a user
  */
