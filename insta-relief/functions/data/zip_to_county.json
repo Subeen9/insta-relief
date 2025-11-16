@@ -1,0 +1,106 @@
+{
+
+  "70112": "orleans",
+  "70113": "orleans",
+  "70002": "jefferson",
+  "70003": "jefferson",
+  "70401": "tangipahoa",
+
+  "96101": "modoc",
+  "96104": "modoc",
+  "97630": "lake",
+  "97635": "lake",
+  "97601": "klamath",
+  "97603": "klamath",
+  "97624": "klamath",
+  "97736": "lake",
+  "96050": "siskiyou",
+  "96097": "siskiyou",
+
+
+  "90001": "los angeles",
+  "90002": "los angeles",
+  "94102": "san francisco",
+  "94103": "san francisco",
+  "95814": "sacramento",
+  "95833": "sacramento",
+  "93701": "fresno",
+  "93711": "fresno",
+  "Eastern Sierra Slopes": "93517",
+  "Death Valley NP":"92328",
+  "San Bernardino":"92427",
+
+  "73301": "travis",
+  "73344": "travis",
+  "77001": "harris",
+  "77002": "harris",
+  "75201": "dallas",
+  "75202": "dallas",
+  "76102": "tarrant",
+  "78205": "bexar",
+
+  "33101": "miami-dade",
+  "33125": "miami-dade",
+  "32801": "orange",
+  "32803": "orange",
+  "32202": "duval",
+  "32204": "duval",
+  "33602": "hillsborough",
+  "33605": "hillsborough",
+
+
+  "60601": "cook",
+  "60602": "cook",
+  "60540": "dupage",
+  "61101": "winnebago",
+  "61820": "champaign",
+
+
+  "44101": "cuyahoga",
+  "44102": "cuyahoga",
+  "43215": "franklin",
+  "45202": "hamilton",
+  "45402": "montgomery",
+
+
+  "10001": "new york",
+  "10002": "new york",
+  "11201": "kings",
+  "10451": "bronx",
+  "12207": "albany",
+  "14604": "monroe",
+  "13202": "onondaga",
+
+
+  "19102": "philadelphia",
+  "19103": "philadelphia",
+  "15213": "allegheny",
+  "16501": "erie",
+  "17601": "lancaster",
+
+
+  "98101": "king",
+  "98109": "king",
+  "99201": "spokane",
+  "99301": "benton",
+
+
+  "80202": "denver",
+  "80903": "el paso",
+  "81611": "pitkin",
+  "80524": "larimer",
+
+  "85001": "maricopa",
+  "85701": "pima",
+  "86001": "coconino",
+
+  "48201": "wayne",
+  "49503": "kent",
+  "49007": "kalamazoo",
+  "49931": "houghton",
+
+  "02108": "suffolk",
+  "02139": "middlesex",
+  "01060": "hampshire",
+  "01810": "essex"
+}
