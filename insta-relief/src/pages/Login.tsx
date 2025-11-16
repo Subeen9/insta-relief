@@ -38,11 +38,7 @@ export default function LoginPage() {
     >
       <Card sx={{ width: "100%", p: 4, borderRadius: 3 }}>
         <CardContent>
-          <Typography
-            variant="h4"
-            align="center"
-            sx={{ mb: 3, fontWeight: 700 }}
-          >
+          <Typography variant="h4" align="center" sx={{ mb: 3, fontWeight: 700 }}>
             Welcome Back
           </Typography>
           <Stack spacing={3}>
@@ -72,7 +68,7 @@ export default function LoginPage() {
             <Button
               fullWidth
               variant="outlined"
-              onClick={() => navigate("/onboarding")}
+              onClick={() => navigate("/")}
               sx={{ borderRadius: 2 }}
             >
               New user? Sign up
