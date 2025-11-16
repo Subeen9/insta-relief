@@ -18,7 +18,6 @@ import {
   Paper,
   Link,
   Chip,
-  TablePagination,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -26,31 +25,11 @@ import {
   TextField,
   Alert,
 } from "@mui/material";
-
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import { useNavigate } from "react-router-dom";
 import { auth, db } from "../firebase";
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  getDocs,
-  orderBy,
-  updateDoc,
-  addDoc,
-} from "firebase/firestore";
-
-// layout
-import Navbar from "../components/Navbar";
-import Footer from "../components/Footer";
-
-// icons
-import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
-import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
-import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
-
-// solana + pricing
+import { doc, getDoc, collection, query, getDocs, orderBy, updateDoc, addDoc } from "firebase/firestore";
+import { signOut } from "firebase/auth";
 import { getProvider, sendSol } from "../lib/solana";
 import { convertUSDtoSOL } from "../lib/priceService";
 
@@ -80,32 +59,23 @@ interface Transaction {
   exchangeRate?: number;
 }
 
-interface MessageState {
-  type: "success" | "error";
-  text: string;
-  explorerUrl?: string;
-}
-
 export default function DashboardPage() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-
-  // Pagination
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-
-  // Withdraw state
   const [withdrawDialog, setWithdrawDialog] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawing, setWithdrawing] = useState(false);
-  const [message, setMessage] = useState<MessageState | null>(null);
+  const [message, setMessage] = useState<{ 
+    type: "success" | "error"; 
+    text: string;
+    explorerUrl?: string;
+  } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     amountUSD?: number;
     amountSOL?: number;
   }>({ open: false });
-
   const navigate = useNavigate();
 
   // ---------- Pagination handlers ----------
@@ -197,20 +167,38 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, [navigate]);
 
-  // ---------- Withdraw logic ----------
+      if (
+        error.message?.includes("cancelled") ||
+        error.message?.includes("rejected")
+      ) {
+        setMessage({
+          type: "error",
+          text: "Transaction cancelled. Your balance has not been changed.",
+        });
+      } else {
+        setMessage({
+          type: "error",
+          text: `Withdrawal failed: ${error.message}`,
+        });
+      }
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   const handleWithdrawClick = () => {
     if (!userData?.walletAddress) {
-      setMessage({
-        type: "error",
-        text: "No wallet connected. Please update your profile with a Solana wallet address.",
+      setMessage({ 
+        type: "error", 
+        text: "No wallet connected. Please update your profile with a Solana wallet address." 
       });
       return;
     }
 
     if ((userData?.balance || 0) < 10) {
-      setMessage({
-        type: "error",
-        text: "Minimum withdrawal amount is $10.00",
+      setMessage({ 
+        type: "error", 
+        text: "Minimum withdrawal amount is $10.00" 
       });
       return;
     }
@@ -232,10 +220,7 @@ export default function DashboardPage() {
     }
 
     if (amount > 1000) {
-      setMessage({
-        type: "error",
-        text: "Maximum withdrawal is $1,000.00 per transaction",
-      });
+      setMessage({ type: "error", text: "Maximum withdrawal is $1,000.00 per transaction" });
       return;
     }
 
@@ -253,11 +238,7 @@ export default function DashboardPage() {
       });
       setWithdrawDialog(false);
     } catch (error: any) {
-      console.error(error);
-      setMessage({
-        type: "error",
-        text: `Failed to prepare withdrawal: ${error.message}`,
-      });
+      setMessage({ type: "error", text: `Failed to prepare withdrawal: ${error.message}` });
     }
   };
 
@@ -266,10 +247,7 @@ export default function DashboardPage() {
 
     const provider = getProvider();
     if (!provider || !provider.publicKey) {
-      setMessage({
-        type: "error",
-        text: "Please connect Phantom wallet to withdraw",
-      });
+      setMessage({ type: "error", text: "Please connect Phantom wallet to withdraw" });
       setConfirmDialog({ open: false });
       return;
     }
@@ -278,7 +256,7 @@ export default function DashboardPage() {
       setWithdrawing(true);
       setConfirmDialog({ open: false });
 
-      // Send SOL to the user's wallet
+      // Send SOL to user's wallet
       const { signature, explorerUrl } = await sendSol(
         userData.walletAddress!,
         confirmDialog.amountSOL
@@ -286,7 +264,7 @@ export default function DashboardPage() {
 
       const newBalance = userData.balance - confirmDialog.amountUSD;
 
-      // Update user balance in Firestore
+      // Update user balance
       await updateDoc(doc(db, "users", auth.currentUser!.uid), {
         balance: newBalance,
         lastWithdrawal: new Date().toISOString(),
@@ -300,40 +278,36 @@ export default function DashboardPage() {
         amountSOL: confirmDialog.amountSOL,
         walletAddress: userData.walletAddress,
         status: "completed",
-        signature,
-        explorerUrl,
+        signature: signature,
+        explorerUrl: explorerUrl,
         createdAt: new Date().toISOString(),
         oldBalance: userData.balance,
-        newBalance,
+        newBalance: newBalance,
       });
 
-      setMessage({
-        type: "success",
-        text: `Successfully withdrew $${confirmDialog.amountUSD.toFixed(
-          2
-        )}! SOL has been sent to your wallet.`,
-        explorerUrl,
+      setMessage({ 
+        type: "success", 
+        text: `Successfully withdrew $${confirmDialog.amountUSD.toFixed(2)}! SOL has been sent to your wallet.`,
+        explorerUrl: explorerUrl
       });
 
       setWithdrawAmount("");
-
-      // Refresh user data & transactions
+      
+      // Refresh user data
       await fetchUserData();
+
     } catch (error: any) {
       console.error("Withdrawal error:", error);
-
-      if (
-        error.message?.includes("cancelled") ||
-        error.message?.includes("rejected")
-      ) {
-        setMessage({
-          type: "error",
-          text: "Transaction cancelled. Your balance has not been changed.",
+      
+      if (error.message?.includes("cancelled") || error.message?.includes("rejected")) {
+        setMessage({ 
+          type: "error", 
+          text: "Transaction cancelled. Your balance has not been changed." 
         });
       } else {
-        setMessage({
-          type: "error",
-          text: `Withdrawal failed: ${error.message}`,
+        setMessage({ 
+          type: "error", 
+          text: `Withdrawal failed: ${error.message}` 
         });
       }
     } finally {
@@ -341,7 +315,6 @@ export default function DashboardPage() {
     }
   };
 
-  // ---------- Loading / null checks ----------
   if (loading) {
     return (
       <Container
@@ -368,8 +341,66 @@ export default function DashboardPage() {
   //                        RENDER
   // ============================================================
   return (
-    <>
-      <Navbar />
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Stack spacing={4}>
+        {message && (
+          <Alert
+            severity={message.type}
+            onClose={() => setMessage(null)}
+            action={
+              message.explorerUrl ? (
+                <Button 
+                  color="inherit" 
+                  size="small"
+                  onClick={() => window.open(message.explorerUrl, '_blank')}
+                >
+                  View Transaction
+                </Button>
+              ) : undefined
+            }
+          >
+            {message.text}
+          </Alert>
+        )}
+
+        <Card
+          sx={{
+            p: 4,
+            borderRadius: 4,
+            backgroundColor: (theme) =>
+              theme.palette.mode === "dark" ? "#0B0E11" : "#F8FAFC",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
+          }}
+        >
+          <CardContent>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
+              <Typography
+                variant="h4"
+                sx={{ fontWeight: 700, color: "primary.main" }}
+              >
+                Your Policy Dashboard
+              </Typography>
+              <Button variant="outlined" onClick={handleLogout}>
+                Logout
+              </Button>
+            </Stack>
+
+            <Stack spacing={1.2} sx={{ mb: 4 }} alignItems="center">
+              <Typography variant="h6">
+                {userData.firstName} {userData.lastName}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {userData.email}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                ZIP Code: {userData.zip}
+              </Typography>
+              {userData.walletAddress && (
+                <Typography variant="body2" color="text.secondary">
+                  Wallet: {userData.walletAddress.slice(0, 8)}...{userData.walletAddress.slice(-8)}
+                </Typography>
+              )}
+            </Stack>
 
       <Container maxWidth="lg" sx={{ py: 5 }}>
         <Stack spacing={4}>
@@ -555,264 +586,116 @@ export default function DashboardPage() {
                   </Link>
                 </Typography>
 
-                <Typography variant="body1" sx={{ mt: 0.5 }}>
-                  Emergency Fund Balance:&nbsp;
-                  <span
-                    style={{
-                      color: "#10B981",
-                      fontWeight: 800,
-                      fontSize: "1.25rem",
-                    }}
-                  >
-                    ${userData.balance.toFixed(2)}
-                  </span>
-                </Typography>
-
-                {/* Withdraw CTA */}
-                <Box sx={{ mt: 2 }}>
-                  {userData.walletAddress && userData.balance >= 10 && (
-                    <Button
-                      variant="contained"
-                      size="large"
-                      startIcon={<AccountBalanceWalletIcon />}
-                      onClick={handleWithdrawClick}
-                      disabled={withdrawing}
-                      sx={{
-                        textTransform: "none",
-                        fontWeight: 700,
-                        px: 3,
-                        borderRadius: 999,
-                        backgroundColor: "#10B981",
-                        color: "#020617",
-                        boxShadow: "0 0 16px rgba(16,185,129,0.5)",
-                        "&:hover": {
-                          backgroundColor: "#0EA370",
-                          boxShadow: "0 0 24px rgba(16,185,129,0.7)",
-                        },
-                      }}
-                    >
-                      {withdrawing ? "Processing..." : "Withdraw Funds"}
-                    </Button>
-                  )}
-
-                  {!userData.walletAddress && (
-                    <Alert
-                      severity="info"
-                      sx={{
-                        mt: 2,
-                        borderRadius: 2,
-                        backgroundColor: "rgba(59,130,246,0.12)",
-                        border: "1px solid rgba(59,130,246,0.4)",
-                      }}
-                    >
-                      Connect a Solana wallet to withdraw your funds.
-                    </Alert>
-                  )}
-
-                  {userData.walletAddress && userData.balance < 10 && (
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ display: "block", mt: 2 }}
-                    >
-                      Minimum withdrawal: $10.00
-                    </Typography>
-                  )}
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-
-          {/* TRANSACTION HISTORY */}
-          <Card
-            sx={{
-              borderRadius: 6,
-              background:
-                "linear-gradient(145deg, rgba(15,23,42,1), rgba(15,23,42,0.95))",
-              boxShadow: "0 18px 40px rgba(0,0,0,0.8)",
-              border: "1px solid rgba(30,64,175,0.5)",
-            }}
-          >
-            <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-              <Typography
-                variant="h6"
-                sx={{ mb: 2.5, fontWeight: 700, color: "#E5E7EB" }}
-              >
-                Transaction History
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                Emergency Fund Balance:&nbsp;
+                <strong style={{ color: "#0E9F6E", fontSize: "1.5rem" }}>
+                  ${userData.balance.toFixed(2)}
+                </strong>
               </Typography>
 
-              {transactions.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No transactions yet. You’ll see payouts here when catastrophes
-                  affect your area.
-                </Typography>
-              ) : (
-                <>
-                  <TableContainer
-                    component={Paper}
-                    variant="outlined"
-                    sx={{
-                      backgroundColor: "rgba(15,23,42,0.98)",
-                      borderRadius: 4,
-                      border: "1px solid rgba(31,41,55,0.8)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow
-                          sx={{
-                            "& th": {
-                              backgroundColor: "rgba(15,23,42,1)",
-                              color: "#9CA3AF",
-                              fontWeight: 700,
-                              fontSize: "0.8rem",
-                              borderBottom:
-                                "1px solid rgba(55,65,81,0.7)",
-                            },
-                          }}
-                        >
-                          <TableCell>Date</TableCell>
-                          <TableCell>Event Type</TableCell>
-                          <TableCell>Location</TableCell>
-                          <TableCell>Amount (USD)</TableCell>
-                          <TableCell>Amount (SOL)</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Explorer</TableCell>
-                          <TableCell>Exchange Rate</TableCell>
-                        </TableRow>
-                      </TableHead>
-
-                      <TableBody>
-                        {paginatedData.map((tx) => (
-                          <TableRow
-                            key={tx.id}
-                            sx={{
-                              "&:nth-of-type(odd)": {
-                                backgroundColor:
-                                  "rgba(15,23,42,0.92)",
-                              },
-                              "&:hover": {
-                                backgroundColor:
-                                  "rgba(30,64,175,0.25)",
-                                transition: "0.2s ease",
-                                cursor: "pointer",
-                                boxShadow:
-                                  tx.status === "Completed"
-                                    ? "0 0 12px rgba(16,185,129,0.35)"
-                                    : "0 0 12px rgba(239,68,68,0.35)",
-                              },
-                              "& td": {
-                                borderBottomColor:
-                                  "rgba(31,41,55,0.6)",
-                                fontSize: "0.85rem",
-                                paddingY: 1.2,
-                              },
-                            }}
-                          >
-                            <TableCell>
-                              {new Date(
-                                tx.createdAt
-                              ).toLocaleDateString()}
-                            </TableCell>
-                            <TableCell>{tx.type}</TableCell>
-                            <TableCell>{tx.location}</TableCell>
-                            <TableCell>
-                              ${tx.amount.toFixed(2)}
-                            </TableCell>
-                            <TableCell>
-                              {tx.amountSOL
-                                ? tx.amountSOL.toFixed(4)
-                                : "0.0000"}{" "}
-                              SOL
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                label={tx.status}
-                                color={
-                                  tx.status === "Completed"
-                                    ? "success"
-                                    : "error"
-                                }
-                                size="small"
-                                sx={{
-                                  fontSize: "0.7rem",
-                                  fontWeight: 700,
-                                  px: 1,
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              {tx.explorerUrl ? (
-                                <Link
-                                  href={tx.explorerUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  sx={{
-                                    fontSize: "0.78rem",
-                                    color: "#60A5FA",
-                                  }}
-                                >
-                                  View
-                                </Link>
-                              ) : (
-                                <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                >
-                                  N/A
-                                </Typography>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {tx.exchangeRate
-                                ? `$${tx.exchangeRate.toFixed(
-                                    2
-                                  )}/SOL`
-                                : "N/A"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-
-                  {/* Pagination Controls */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      p: 1.5,
-                      backgroundColor: "rgba(15,23,42,0.95)",
-                      borderTop: "1px solid rgba(55,65,81,0.5)",
-                    }}
-                  >
-                    <TablePagination
-                      component="div"
-                      count={transactions.length}
-                      page={page}
-                      rowsPerPage={rowsPerPage}
-                      onPageChange={handleChangePage}
-                      onRowsPerPageChange={handleChangeRowsPerPage}
-                      rowsPerPageOptions={[5, 10, 20, 50]}
-                      sx={{
-                        color: "#9CA3AF",
-                        "& .MuiSelect-icon": {
-                          color: "#9CA3AF",
-                        },
-                      }}
-                    />
-                  </Box>
-                </>
+              {userData.walletAddress && userData.balance >= 10 && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  size="large"
+                  startIcon={<AccountBalanceWalletIcon />}
+                  onClick={handleWithdrawClick}
+                  disabled={withdrawing}
+                  sx={{ mt: 2, fontWeight: 600 }}
+                >
+                  {withdrawing ? "Processing..." : "Withdraw Funds"}
+                </Button>
               )}
-            </CardContent>
-          </Card>
-        </Stack>
-      </Container>
+
+              {!userData.walletAddress && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  Connect a Solana wallet to withdraw your funds
+                </Alert>
+              )}
+
+              {userData.walletAddress && userData.balance < 10 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
+                  Minimum withdrawal: $10.00
+                </Typography>
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+              Transaction History
+            </Typography>
+            
+            {transactions.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No transactions yet. You'll see payouts here when catastrophes affect your area.
+              </Typography>
+            ) : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>Date</strong></TableCell>
+                      <TableCell><strong>Event Type</strong></TableCell>
+                      <TableCell><strong>Location</strong></TableCell>
+                      <TableCell><strong>Amount (USD)</strong></TableCell>
+                      <TableCell><strong>Amount (SOL)</strong></TableCell>
+                      <TableCell><strong>Status</strong></TableCell>
+                      <TableCell><strong>Blockchain</strong></TableCell>
+                      <TableCell><strong>Exchange Rate</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {transactions.map((tx) => (
+                      <TableRow key={tx.id}>
+                        <TableCell>
+                          {new Date(tx.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>{tx.type}</TableCell>
+                        <TableCell>{tx.location}</TableCell>
+                        <TableCell>${tx.amount.toFixed(2)}</TableCell>
+                        <TableCell>{tx.amountSOL ? tx.amountSOL.toFixed(4) : '0.0000'} SOL</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={tx.status}
+                            color={tx.status === "Completed" ? "success" : "error"}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {tx.explorerUrl ? (
+                            <Link
+                              href={tx.explorerUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              sx={{ fontSize: "0.875rem" }}
+                            >
+                              View on Explorer
+                            </Link>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">
+                              N/A
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {tx.exchangeRate ? `$${tx.exchangeRate.toFixed(2)}/SOL` : 'N/A'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
+      </Stack>
 
       {/* Withdraw Dialog */}
-      <Dialog
-        open={withdrawDialog}
+      <Dialog 
+        open={withdrawDialog} 
         onClose={() => !withdrawing && setWithdrawDialog(false)}
         maxWidth="sm"
         fullWidth
@@ -821,19 +704,19 @@ export default function DashboardPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 2 }}>
             <Alert severity="info">
-              Funds will be sent as SOL to your connected Solana wallet.
+              Funds will be sent as SOL to your connected Phantom wallet.
             </Alert>
 
             <TextField
               label="Available Balance"
-              value={`$${userData.balance.toFixed(2)}`}
+              value={`$${userData?.balance.toFixed(2)}`}
               fullWidth
               disabled
             />
 
             <TextField
               label="Wallet Address"
-              value={userData.walletAddress || ""}
+              value={userData?.walletAddress || ""}
               fullWidth
               disabled
             />
@@ -847,8 +730,8 @@ export default function DashboardPage() {
               onChange={(e) => setWithdrawAmount(e.target.value)}
               placeholder="Enter amount (min: $10, max: $1000)"
               helperText="Minimum: $10.00 | Maximum: $1,000.00 per transaction"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
                   handleWithdrawSubmit();
                 }
               }}
@@ -856,7 +739,9 @@ export default function DashboardPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setWithdrawDialog(false)}>Cancel</Button>
+          <Button onClick={() => setWithdrawDialog(false)}>
+            Cancel
+          </Button>
           <Button
             onClick={handleWithdrawSubmit}
             variant="contained"
@@ -868,8 +753,8 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* Confirm Withdrawal Dialog */}
-      <Dialog
-        open={confirmDialog.open}
+      <Dialog 
+        open={confirmDialog.open} 
         onClose={() => !withdrawing && setConfirmDialog({ open: false })}
         maxWidth="sm"
         fullWidth
@@ -889,27 +774,20 @@ export default function DashboardPage() {
             />
             <TextField
               label="You will receive (SOL)"
-              value={
-                confirmDialog.amountSOL
-                  ? `${confirmDialog.amountSOL.toFixed(4)} SOL`
-                  : ""
-              }
+              value={`${confirmDialog.amountSOL?.toFixed(4)} SOL`}
               fullWidth
               disabled
               helperText="Includes 2% buffer for price volatility"
             />
             <TextField
               label="Destination Wallet"
-              value={userData.walletAddress || ""}
+              value={userData?.walletAddress || ""}
               fullWidth
               disabled
             />
             <TextField
               label="New Balance"
-              value={`$${(
-                (userData.balance || 0) -
-                (confirmDialog.amountUSD || 0)
-              ).toFixed(2)}`}
+              value={`$${((userData?.balance || 0) - (confirmDialog.amountUSD || 0)).toFixed(2)}`}
               fullWidth
               disabled
             />
@@ -920,8 +798,8 @@ export default function DashboardPage() {
           </Alert>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => setConfirmDialog({ open: false })}
+          <Button 
+            onClick={() => setConfirmDialog({ open: false })} 
             disabled={withdrawing}
           >
             Cancel
@@ -936,8 +814,6 @@ export default function DashboardPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Footer />
-    </>
+    </Container>
   );
 }
