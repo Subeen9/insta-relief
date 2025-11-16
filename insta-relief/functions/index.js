@@ -77,11 +77,13 @@ function mapAreaToZips(areaDesc) {
  * Process a single user for a given alert
  */
 async function handleUserAlert(doc, alert, pay) {
+  console.log('SMTP key (from functions.config)', functions.config().smtp2go?.api_key);
   // Use process.env for the key, as it's the standard way to access Firebase Environment configuration
   const smtpApiKey = functions.config().smtp2go?.api_key || process.env.SMTP2GO_API_KEY;
+  console.log('smtApikey', smtpApiKey)
 
   if (!smtpApiKey) {
-    console.error("❌ SMTP API key missing! Configure with: firebase functions:config:set smtp2go.api_key=YOUR_KEY");
+    console.error("❌ SMTP API key missing!");
     return;
   }
 
@@ -99,7 +101,7 @@ async function handleUserAlert(doc, alert, pay) {
 
   // Prevent user spam — only 1 alert every 30 mins
   const lastSent = user.lastAlertTimestamp || 0;
-  if (Date.now() - lastSent < 30 * 60 * 1000) {
+  if (Date.now() - lastSent < 3000 * 60 * 1000) {
     console.log(`⏳ Skipping ${user.email} (rate limited)`);
     return;
   }
