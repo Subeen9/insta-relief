@@ -10,7 +10,8 @@
         "firebase-debug.*.log",
         "*.local"
       ],
-      "source": "functions"
+      "source": "functions",
+      "runtime":"nodejs20"
     }
   ],
   "emulators": {

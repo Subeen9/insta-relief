@@ -1,7 +1,6 @@
 const dotenv = require("dotenv");
 dotenv.config();
 
-const fetch = require("node-fetch");
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { Anthropic } = require("@anthropic-ai/sdk");
@@ -10,13 +9,14 @@ const zipToCounty = require("./data/zip_to_county.json");
 // Initialization
 admin.initializeApp();
 const db = admin.firestore();
+const DEFAULT_PAYOUT = parseFloat(process.env.DEFAULT_PAYOUT) || 100;
 
 // -----------------------------------------------------
 // 2. SMTP Email Utility
 // -----------------------------------------------------
 async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
   console.log('Sending email via SMTP2GO...');
-  
+ 
   const response = await fetch("https://api.smtp2go.com/v3/email/send", {
     method: "POST",
     headers: {
@@ -33,12 +33,13 @@ async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
   });
 
   const responseData = await response.json();
-  
+ 
   if (!response.ok) {
     const errorDetail = responseData.data ? JSON.stringify(responseData.data) : JSON.stringify(responseData);
     throw new Error(`SMTP2GO error (${response.status}): ${errorDetail}`);
   }
 
+  console.log('SMTP2GO Response:', JSON.stringify(responseData));
   console.log('SMTP2GO Response:', JSON.stringify(responseData));
   return responseData;
 }
@@ -60,86 +61,47 @@ function mapAreaToZips(areaDesc) {
     .map(([key, zip]) => zip);
 }
 
-async function handleUserAlert(doc, alert, pay) {
+async function handleUserAlert(doc, alert, pay, amountUSD = DEFAULT_PAYOUT) {
   console.log('=== ENTERING handleUserAlert ===');
-  
-  const smtpApiKey = process.env.SMTP2GO_API_KEY;
-  
-  console.log('SMTP API Key Status:', smtpApiKey ? 'Found' : 'Missing');
 
-  if (!smtpApiKey) {
-    const errorMsg = "SMTP API key missing! Set SMTP2GO_API_KEY in .env file";
-    console.error(errorMsg);
-    throw new Error(errorMsg);
-  }
+  const smtpApiKey = process.env.SMTP2GO_API_KEY;
+  if (!smtpApiKey) throw new Error("SMTP2GO_API_KEY missing");
 
   const user = doc.data();
-  console.log('Processing user:', user.email);
-  
   const name = user.name || user.email.split("@")[0];
 
-  const {
-    event,
-    severity,
-    headline,
-    description,
-    areaDesc,
-    id: alertId
-  } = alert.properties;
-
-  console.log('Alert details:', { event, severity, alertId });
-
-  // Rate limit check
-  const lastSent = user.lastAlertTimestamp || 0;
-  const thirtyMinutes = 30 * 60 * 1000;
-  const timeSinceLastAlert = Date.now() - lastSent;
-  
-  console.log('Rate limit check:', {
-    lastSent: lastSent ? new Date(lastSent).toISOString() : 'Never',
-    timeSinceLastMins: Math.round(timeSinceLastAlert / 60000),
-    willSkip: timeSinceLastAlert < thirtyMinutes
-  });
-  
-  if (timeSinceLastAlert < thirtyMinutes) {
-    console.log(`SKIPPING ${user.email} (rate limited)`);
-    return;
-  }
+  const { event, severity, headline, description, areaDesc, id: alertId } = alert.properties;
 
   console.log(`Preparing email for ${user.email}`);
 
+  let subject = `Weather Alert: ${event} (${severity})`;
   let subject = `Weather Alert: ${event} (${severity})`;
   let html = `
     <h2 style="color:red;">${headline}</h2>
     <p>${description}</p>
     <p><b>Severity:</b> ${severity}</p>
     <p><b>Area:</b> ${areaDesc}</p>
+    <p><b>Payment Amount:</b> $${amountUSD}</p>
   `;
 
   if (pay) {
-    subject = `Emergency Fund Released: ${event}`;
-    html += `<p><strong>$100 has been released to your emergency fund.</strong></p>`;
-    console.log(`Processing payout for ${user.email}`);
-    
+    const amount = typeof amountUSD === "number" ? amountUSD : parseFloat(amountUSD) || DEFAULT_PAYOUT;
+    subject = `Emergency Fund Released: $${amount.toFixed(2)} (${event})`;
+    html += `<p><strong>$${amount.toFixed(2)} has been released to your emergency fund.</strong></p>`;
+
     await db.runTransaction(async (t) => {
       const snap = await t.get(doc.ref);
       const balance = snap.data().balance || 0;
       t.update(doc.ref, {
-        balance: balance + 100,
+        balance: balance + amount,
         status: "PAID",
         lastPayout: new Date().toISOString(),
+        lastPayoutAmount: amount
       });
     });
-    console.log(`Payout completed for ${user.email}`);
   }
 
-  console.log(`Updating lastAlertTimestamp for ${user.email}`);
-  await doc.ref.update({
-    lastAlertTimestamp: Date.now(),
-    lastAlertId: alertId,
-  });
-
   console.log(`Sending email to ${user.email}...`);
-  
   await sendEmail(
     smtpApiKey,
     [`${name} <${user.email}>`],
@@ -148,13 +110,13 @@ async function handleUserAlert(doc, alert, pay) {
     html,
     `${event} alert (${severity}) in ${areaDesc}. ${description}`
   );
-  
-  console.log(`Email sent successfully to ${user.email}`);
+
+  console.log('Email sent successfully');
 }
 
-async function handleZipAlert(zip, alert, pay) {
+async function handleZipAlert(zip, alert, pay, amountUSD = DEFAULT_PAYOUT) {
   console.log(`Looking up users for ZIP ${zip}...`);
-  
+ 
   const users = await db.collection("users")
     .where("zip", "==", zip)
     .where("status", "==", "ACTIVE")
@@ -162,28 +124,33 @@ async function handleZipAlert(zip, alert, pay) {
 
   if (users.empty) {
     console.log(`No active users found for ZIP ${zip}`);
+    console.log(`No active users found for ZIP ${zip}`);
     return;
   }
 
   console.log(`Found ${users.size} user(s) for ZIP ${zip}`);
+  console.log(`Found ${users.size} user(s) for ZIP ${zip}`);
 
   const results = await Promise.allSettled(
-    users.docs.map(doc => handleUserAlert(doc, alert, pay))
+    users.docs.map(doc => handleUserAlert(doc, alert, pay, amountUSD))
   );
 
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       console.log(`User ${index + 1} processed successfully`);
+      console.log(`User ${index + 1} processed successfully`);
     } else {
+      console.error(`User ${index + 1} failed:`, result.reason?.message || result.reason);
       console.error(`User ${index + 1} failed:`, result.reason?.message || result.reason);
     }
   });
 
   console.log(`ZIP ${zip} processed (${users.size} users)`);
+  console.log(`ZIP ${zip} processed (${users.size} users)`);
 }
 
 async function fetchNoaaAlertsHandler() {
-  console.log("Fetching NOAA active alerts…");
+  console.log("Fetching NOAA active alerts...");
 
   const resp = await fetch("https://api.weather.gov/alerts/active");
   if (!resp.ok) {
@@ -191,12 +158,14 @@ async function fetchNoaaAlertsHandler() {
   }
 
   const data = await resp.json();
-  
+ 
   if (!data.features || data.features.length === 0) {
+    console.log("No active alerts from NOAA");
     console.log("No active alerts from NOAA");
     return { message: "No active alerts", alertsProcessed: 0 };
   }
 
+  console.log(`Found ${data.features.length} active alerts`);
   console.log(`Found ${data.features.length} active alerts`);
   let processedCount = 0;
 
@@ -205,6 +174,7 @@ async function fetchNoaaAlertsHandler() {
 
     const processed = await db.collection("processedAlerts").doc(alertId).get();
     if (processed.exists) {
+      console.log(`Skipping known alert: ${alertId}`);
       console.log(`Skipping known alert: ${alertId}`);
       continue;
     }
@@ -217,18 +187,19 @@ async function fetchNoaaAlertsHandler() {
 
     const zips = mapAreaToZips(areaDesc);
     console.log(`Alert ${alertId} mapped to ${zips.length} ZIPs`);
+    console.log(`Alert ${alertId} mapped to ${zips.length} ZIPs`);
 
     for (const zip of zips) {
       const pay = shouldSendPayout(severity);
-      await handleZipAlert(zip, alert, pay);
+      await handleZipAlert(zip, alert, pay, DEFAULT_PAYOUT);
     }
-    
+   
     processedCount++;
   }
 
-  return { 
-    message: `Processed ${processedCount} new alerts`, 
-    alertsProcessed: processedCount 
+  return {
+    message: `Processed ${processedCount} new alerts`,
+    alertsProcessed: processedCount
   };
 }
 
@@ -238,7 +209,7 @@ async function fetchNoaaAlertsHandler() {
 
 exports.fetchNoaaAlerts = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  
+ 
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'GET, POST');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -263,10 +234,27 @@ exports.fetchNoaaAlerts = functions.https.onRequest(async (req, res) => {
     });
   }
 });
+  try {
+    console.log("fetchNoaaAlerts HTTP endpoint called");
+    const result = await fetchNoaaAlertsHandler();
+    res.status(200).json({
+      success: true,
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error in fetchNoaaAlerts:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  
+ 
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'GET, POST');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -275,11 +263,13 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
   }
 
   try {
-    const zip = req.query.zip || req.body?.zip || "70401"; 
+    const zip = req.query.zip || req.body?.zip || "70401";
     const severity = req.query.severity || req.body?.severity || "Extreme";
     const event = req.query.event || req.body?.event || "Hurricane";
+    const amountParam = req.query.amount || req.body?.amount;
+    const amountUSD = amountParam ? parseFloat(amountParam) : DEFAULT_PAYOUT;
 
-    console.log(`Simulating ${event} (${severity}) for ZIP ${zip}`);
+    console.log(`Simulating ${event} (${severity}) for ZIP ${zip} with $${amountUSD} payout`);
 
     const fakeAlert = {
       properties: {
@@ -289,16 +279,18 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
         areaDesc: zipToCounty[zip] || `Area for ZIP ${zip}`,
         headline: `${event} Warning - Emergency Alert System Activated`,
         description: `This is a SIMULATED ${event} alert for demonstration purposes. A ${severity.toLowerCase()} weather event has been detected in your area.`,
+        payoutAmountUSD: amountUSD
       },
     };
 
     const pay = shouldSendPayout(severity);
-    await handleZipAlert(zip, fakeAlert, pay);
+    await handleZipAlert(zip, fakeAlert, pay, amountUSD);
 
     res.status(200).json({
       success: true,
       message: `Simulated ${event} alert processed for ZIP ${zip}`,
       payoutSent: pay,
+      payoutAmountUSD: amountUSD,
       severity: severity,
       affectedZip: zip,
       timestamp: new Date().toISOString()
@@ -314,10 +306,20 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
     });
   }
 });
+  } catch (error) {
+    console.error("Error in simulateDisaster:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 exports.checkUsers = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  
+ 
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'GET');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -327,7 +329,7 @@ exports.checkUsers = functions.https.onRequest(async (req, res) => {
 
   try {
     const zip = req.query.zip || "70401";
-    
+   
     const users = await db.collection("users")
       .where("zip", "==", zip)
       .where("status", "==", "ACTIVE")
@@ -339,14 +341,20 @@ exports.checkUsers = functions.https.onRequest(async (req, res) => {
         email: data.email,
         name: data.name,
         balance: data.balance || 0,
-        lastAlert: data.lastAlertTimestamp 
-          ? new Date(data.lastAlertTimestamp).toISOString() 
+        lastAlert: data.lastAlertTimestamp
+          ? new Date(data.lastAlertTimestamp).toISOString()
           : "Never",
-        canReceiveAlert: !data.lastAlertTimestamp || 
-          (Date.now() - data.lastAlertTimestamp > 30 * 60 * 1000)
+        canReceiveAlert: true
       };
     });
 
+    res.status(200).json({
+      success: true,
+      zip: zip,
+      userCount: userList.length,
+      users: userList,
+      timestamp: new Date().toISOString()
+    });
     res.status(200).json({
       success: true,
       zip: zip,
@@ -364,9 +372,21 @@ exports.checkUsers = functions.https.onRequest(async (req, res) => {
     });
   }
 });
+  } catch (error) {
+    console.error("Error in checkUsers:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 exports.disaster = functions.https.onCall(async (request, context) => {
   const zip = request.data.zip;
+  const amountParam = request.data.amount;
+  const amountUSD = amountParam ? parseFloat(amountParam) : DEFAULT_PAYOUT;
+ 
   if (!zip) {
     throw new functions.https.HttpsError(
       "invalid-argument",
@@ -393,34 +413,15 @@ exports.disaster = functions.https.onCall(async (request, context) => {
     return { message: `No user found in ${zip}` };
   }
 
-  // Filter users who haven't been paid in last 1 hour
-  const now = Date.now();
-  const oneHour = 60 * 60 * 1000;
   const eligibleUsers = [];
-
   for (const userDoc of userSnap.docs) {
-    const userData = userDoc.data();
-    const lastPayout = userData.lastPayout
-      ? new Date(userData.lastPayout).getTime()
-      : 0;
-
-    if (now - lastPayout >= oneHour) {
-      eligibleUsers.push(userDoc);
-    } else {
-      console.log(
-        `Skipping ${userData.email} - paid ${Math.round(
-          (now - lastPayout) / 60000
-        )} minutes ago`
-      );
-    }
+    eligibleUsers.push(userDoc);
   }
 
-  console.log(`${eligibleUsers.length} eligible user(s) after filtering`);
+  console.log(`${eligibleUsers.length} user(s) will receive alert/payout`);
 
   if (eligibleUsers.length === 0) {
-    return {
-      message: `No eligible users in ${zip} (all paid within last hour)`,
-    };
+    return { message: `No users found in ZIP ${zip}` };
   }
 
   const result = [];
@@ -439,31 +440,34 @@ exports.disaster = functions.https.onCall(async (request, context) => {
 
     try {
       await user.ref.update({
-        balance: (userData.balance || 0) + 100,
+        balance: (userData.balance || 0) + amountUSD,
         lastPayout: new Date().toISOString(),
       });
+
+      const htmlBody = `
+        <h2 style="color:red;">Alert - Emergency Fund Released</h2>
+        <p>Dear ${name},</p>
+        <p>Your micro-insurance policy has been triggered for ZIP <b>${zip}</b>.</p>
+        <p><strong>$${amountUSD.toFixed(2)} has been released to your emergency fund.</strong></p>
+        <p>Current balance: $${((userData.balance || 0) + amountUSD).toFixed(2)}</p>
+        <p>Stay safe,<br/>Disaster Alert System</p>
+      `;
+
+      const textBody = `Dear ${name},\n\nYour micro-insurance policy has been triggered for ZIP ${zip}. $${amountUSD.toFixed(2)} has been released to your emergency fund.\n\nCurrent balance: $${((userData.balance || 0) + amountUSD).toFixed(2)}\n\nStay safe.`;
 
       const emailResponse = await sendEmail(
         smtpConfig.api_key,
         [`${name} <${email}>`],
         "Disaster Alert <niraj.bhatta@selu.edu>",
-        "Flood Alert - Emergency Fund Released",
-        `
-          <h2 style="color:red;">Flood Alert</h2>
-          <p>Dear ${name},</p>
-          <p>Your micro-insurance policy has been triggered for ZIP <b>${zip}</b>.</p>
-          <p><strong>$100 has been released to your emergency fund.</strong></p>
-          <p>Current balance: $${(userData.balance || 0) + 100}</p>
-          <p>Stay safe,<br/>Disaster Alert System</p>
-        `,
-        `Dear ${name},\n\nYour policy has been triggered for ZIP ${zip}. $100 has been released to your emergency fund.\n\nCurrent balance: $${
-          (userData.balance || 0) + 100
-        }\n\nStay safe.`
+        "Alert - Emergency Fund Released",
+        htmlBody,
+        textBody
       );
 
       console.log(`Email sent to ${email}`, emailResponse);
       result.push(email);
     } catch (err) {
+      console.error(`Failed to process ${email}:`, err);
       console.error(`Failed to process ${email}:`, err);
       errors.push({
         email,
@@ -481,7 +485,7 @@ exports.disaster = functions.https.onCall(async (request, context) => {
 
 exports.sendCatastropheEmail = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
-  
+ 
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'POST');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -500,28 +504,28 @@ exports.sendCatastropheEmail = functions.https.onRequest(async (req, res) => {
     }
 
     const smtpApiKey = process.env.SMTP2GO_API_KEY;
-    
+   
     if (!smtpApiKey) {
       throw new Error("SMTP API key missing");
     }
 
     console.log(`Sending catastrophe email to ${userEmail}`);
 
-    const subject = `Emergency Relief Payment Received - ${catastropheType}`;
+    const subject = `Emergency Relief Payment: $${amount} - ${catastropheType}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color:#4CAF50;">Emergency Relief Payment Received</h2>
         <p>Dear ${userName},</p>
-        <p>Your emergency relief payment has been successfully processed and deposited to your Phantom wallet.</p>
-        
+        <p>Your emergency relief payment of <b>$${amount}</b> has been successfully processed and deposited to your Phantom wallet.</p>
+       
         <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
           <p style="margin: 5px 0;"><b>Disaster Type:</b> ${catastropheType}</p>
           <p style="margin: 5px 0;"><b>Location:</b> ${location}</p>
           <p style="margin: 5px 0;"><b>Amount Received:</b> <span style="color: #4CAF50; font-size: 18px; font-weight: bold;">$${amount}</span></p>
         </div>
-        
+       
         <p>The funds are now available in your connected Phantom wallet and can be used immediately.</p>
-        
+       
         <p style="color: #666; font-size: 12px; margin-top: 30px;">
           Stay safe,<br>
           <b>Insta-Relief Team</b>
@@ -558,8 +562,15 @@ exports.sendCatastropheEmail = functions.https.onRequest(async (req, res) => {
 
 // -----------------------------------------------------
 // 5. AI Admin Agent
+// 5. AI Admin Agent
 // -----------------------------------------------------
 
+exports.adminAgent = functions.https.onRequest(
+  {
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async (req, res) => {
 exports.adminAgent = functions.https.onRequest(
   {
     timeoutSeconds: 540,
@@ -569,7 +580,7 @@ exports.adminAgent = functions.https.onRequest(
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Content-Type");
-  
+ 
   if (req.method === 'OPTIONS') {
     res.status(204).send("");
     return;
@@ -577,17 +588,20 @@ exports.adminAgent = functions.https.onRequest(
 
   try {
     const { query } = req.body;
+  try {
+    const { query } = req.body;
 
     if (!query) {
       return res.status(400).json({ error: "Missing query" });
     }
+    if (!query) {
+      return res.status(400).json({ error: "Missing query" });
+    }
 
-    // Initialize Anthropic INSIDE the function to avoid cold start timeout
     const anthropic = new Anthropic({
       apiKey: process.env.CLAUDE_API_KEY,
     });
 
-    // AI Tools
     const tools = [
       {
         name: "get_platform_config",
@@ -614,7 +628,7 @@ exports.adminAgent = functions.https.onRequest(
       },
       {
         name: "auto_trigger_catastrophe",
-        description: "Trigger a catastrophe event - updates balances AND prepares Phantom wallet form. After admin confirms, blockchain payment will be sent and THEN emails will go out automatically.",
+        description: "Trigger a catastrophe event - updates balances AND prepares Phantom wallet form.",
         input_schema: {
           type: "object",
           properties: {
@@ -637,7 +651,7 @@ exports.adminAgent = functions.https.onRequest(
             },
             description: {
               type: "string",
-              description: "Event description (optional - AI generates if not provided)"
+              description: "Event description (optional)"
             }
           },
           required: ["type", "location", "zipCodes", "amount"]
@@ -649,9 +663,9 @@ exports.adminAgent = functions.https.onRequest(
         input_schema: {
           type: "object",
           properties: {
-            zip: { 
-              type: "string", 
-              description: "Optional: filter by specific ZIP" 
+            zip: {
+              type: "string",
+              description: "Optional: filter by specific ZIP"
             }
           }
         }
@@ -662,17 +676,17 @@ exports.adminAgent = functions.https.onRequest(
         input_schema: {
           type: "object",
           properties: {
-            limit: { 
-              type: "number", 
-              description: "Number of events to return (default: 10)" 
+            limit: {
+              type: "number",
+              description: "Number of events to return (default: 10)"
             }
           }
         }
       }
     ];
 
-    // Tool Execution
     async function executeToolCall(toolName, toolInput) {
+      console.log(`Executing: ${toolName}`, toolInput);
       console.log(`Executing: ${toolName}`, toolInput);
 
       switch (toolName) {
@@ -729,10 +743,10 @@ exports.adminAgent = functions.https.onRequest(
         case "get_users_by_zip": {
           const { zipCodes } = toolInput;
           const allUsers = [];
-          
+         
           for (const zip of zipCodes) {
             const snapshot = await db.collection("users").where("zip", "==", zip).get();
-            
+           
             snapshot.forEach(doc => {
               const data = doc.data();
               allUsers.push({
@@ -748,8 +762,8 @@ exports.adminAgent = functions.https.onRequest(
             });
           }
 
-          return { 
-            users: allUsers, 
+          return {
+            users: allUsers,
             count: allUsers.length,
             zipCodes: zipCodes
           };
@@ -757,13 +771,17 @@ exports.adminAgent = functions.https.onRequest(
 
         case "auto_trigger_catastrophe": {
           const { type, location, zipCodes, amount, description } = toolInput;
-          
+         
           console.log(`AUTO-TRIGGERING: ${type} for ZIPs ${zipCodes.join(", ")}`);
 
           const balanceUpdates = [];
           const errors = [];
-          
+         
           for (const zip of zipCodes) {
+            const snapshot = await db.collection("users")
+              .where("zip", "==", zip)
+              .where("status", "==", "ACTIVE")
+              .get();
             const snapshot = await db.collection("users")
               .where("zip", "==", zip)
               .where("status", "==", "ACTIVE")
@@ -793,12 +811,13 @@ exports.adminAgent = functions.https.onRequest(
                   walletAddress: userData.walletAddress
                 });
 
-                console.log(`Balance updated: ${userData.email} $${oldBalance} → $${newBalance}`);
+                console.log(`Balance updated: ${userData.email} $${oldBalance} -> $${newBalance}`);
               } catch (error) {
                 errors.push({
                   email: userData.email,
                   error: error.message
                 });
+                console.error(`Failed to update ${userData.email}:`, error);
                 console.error(`Failed to update ${userData.email}:`, error);
               }
             }
@@ -806,16 +825,16 @@ exports.adminAgent = functions.https.onRequest(
 
           const usersWithWallet = balanceUpdates.filter(u => u.hasWallet);
           const usersWithoutWallet = balanceUpdates.filter(u => !u.hasWallet);
-          
+         
           const estimatedCost = usersWithWallet.length * amount;
           const estimatedSOL = estimatedCost / 100;
 
-          const finalDescription = description || 
-            `${type} disaster affecting ZIP codes: ${zipCodes.join(", ")}. Emergency relief payout of $${amount} per affected user. Balances have been pre-credited in Firestore.`;
+          const finalDescription = description ||
+            `${type} disaster affecting ZIP codes: ${zipCodes.join(", ")}. Emergency relief payout of $${amount} per affected user.`;
 
           return {
             action: "AUTO_CATASTROPHE_TRIGGERED",
-            
+           
             balanceUpdateData: {
               success: true,
               updated: balanceUpdates.length,
@@ -823,6 +842,7 @@ exports.adminAgent = functions.https.onRequest(
               totalAdded: balanceUpdates.length * amount,
               updates: balanceUpdates,
               errors: errors.length > 0 ? errors : null,
+              message: `Updated ${balanceUpdates.length} users' balances in Firestore. Added $${amount} per user.`
               message: `Updated ${balanceUpdates.length} users' balances in Firestore. Added $${amount} per user.`
             },
 
@@ -844,10 +864,11 @@ exports.adminAgent = functions.https.onRequest(
                 readyToExecute: usersWithWallet.length > 0
               },
               affectedUsers: usersWithWallet.slice(0, 10)
+              affectedUsers: usersWithWallet.slice(0, 10)
             },
 
-            message: usersWithWallet.length > 0 
-              ? `READY TO EXECUTE!\n\nBalance Updates:\n• ${balanceUpdates.length} users updated in Firestore\n• $${balanceUpdates.length * amount} total added to balances\n\nPhantom Trigger:\n• ${usersWithWallet.length} users ready to receive SOL\n• ${estimatedSOL} SOL needed ($${estimatedCost})\n• ${usersWithoutWallet.length} users without wallets (skipped)\n\nNext: Click the button to open pre-filled dialog and trigger Phantom!`
+            message: usersWithWallet.length > 0
+              ? `READY TO EXECUTE!\n\nBalance Updates:\n- ${balanceUpdates.length} users updated in Firestore\n- $${balanceUpdates.length * amount} total added to balances\n\nPhantom Trigger:\n- ${usersWithWallet.length} users ready to receive SOL\n- ${estimatedSOL} SOL needed ($${estimatedCost})\n- ${usersWithoutWallet.length} users without wallets (skipped)\n\nNext: Click the button to open pre-filled dialog and trigger Phantom!`
               : `Balance updated for ${balanceUpdates.length} users, but NONE have Phantom wallets connected. Cannot send SOL.`
           };
         }
@@ -863,11 +884,11 @@ exports.adminAgent = functions.https.onRequest(
             total: snapshot.size,
             byStatus: {},
             byZip: {},
-            balances: { 
-              total: 0, 
-              average: 0, 
-              min: Infinity, 
-              max: -Infinity 
+            balances: {
+              total: 0,
+              average: 0,
+              min: Infinity,
+              max: -Infinity
             },
             withWallet: 0,
             withoutWallet: 0
@@ -894,7 +915,7 @@ exports.adminAgent = functions.https.onRequest(
 
         case "get_recent_catastrophes": {
           const limit = toolInput.limit || 10;
-          
+         
           const snapshot = await db.collection("catastrophes")
             .orderBy("createdAt", "desc")
             .limit(limit)
@@ -917,11 +938,23 @@ exports.adminAgent = functions.https.onRequest(
               createdAt: data.createdAt || new Date().toISOString(),
               createdBy: data.createdBy || "Unknown",
               description: data.description || ""
+              type: data.type || "Unknown",
+              location: data.location || "Unknown",
+              zipCodes: data.zipCodes || [],
+              amount: data.amount || 0,
+              amountSOL: data.amountSOL || 0,
+              totalAffected: data.totalAffected || 0,
+              successfulPayouts: data.successfulPayouts || 0,
+              failedPayouts: data.failedPayouts || 0,
+              emailsSent: data.emailsSent || 0,
+              createdAt: data.createdAt || new Date().toISOString(),
+              createdBy: data.createdBy || "Unknown",
+              description: data.description || ""
             });
           });
 
-          return { 
-            events, 
+          return {
+            events,
             count: events.length,
             summary: {
               totalEvents: events.length,
@@ -937,7 +970,6 @@ exports.adminAgent = functions.https.onRequest(
       }
     }
 
-    // AI Agentic Loop
     const messages = [{ role: "user", content: query }];
     let continueLoop = true;
     let iterationCount = 0;
@@ -954,8 +986,10 @@ exports.adminAgent = functions.https.onRequest(
 
 WORKFLOW:
 When admin wants to trigger a catastrophe:
+WORKFLOW:
+When admin wants to trigger a catastrophe:
 1. Use auto_trigger_catastrophe tool
-2. This automatically updates ALL user balances in Firestore and prepares catastrophe trigger form for Phantom wallet
+2. This automatically updates ALL user balances in Firestore and prepares catastrophe trigger form
 3. Admin reviews and confirms in UI
 4. Phantom wallet sends SOL payments
 5. Emails are sent automatically AFTER successful blockchain payment
@@ -964,13 +998,13 @@ Your capabilities:
 - Auto-update user balances in Firestore
 - Auto-fill catastrophe forms
 - Analyze user data and provide recommendations
+- Analyze user data and provide recommendations
 - Review catastrophe history
 - Answer questions about the platform
 
 Platform details:
 - SERVICE AREA: Louisiana, USA (Hammond, Baton Rouge, New Orleans, Lafayette areas)
 - Primary ZIP codes: 70401-70403 (Hammond), 70112-70119 (New Orleans), 70801-70809 (Baton Rouge)
-- Hammond assumption: If user says "Hammond" without state, assume Hammond, Louisiana
 - Users have Phantom wallet addresses for SOL payments
 - Balances tracked in Firestore (USD)
 - SOL payments via Phantom (1 SOL = $100)
@@ -981,7 +1015,7 @@ Available catastrophe types:
 - Flood, Hurricane, Earthquake, Wildfire, Tornado, Winter Storm, Drought
 
 FORMATTING CATASTROPHE EVENTS:
-When showing catastrophe events, display actual numbers in this format:
+When showing catastrophe events, display actual numbers:
 
 Event NUMBER:
   Type = VALUE
@@ -996,7 +1030,7 @@ Event NUMBER:
   Emails Sent = NUMBER
   Triggered By = VALUE
 
-Be proactive, clear, and helpful in your responses.`,
+Be proactive, clear, and helpful.`,
         tools,
         messages
       });
@@ -1005,7 +1039,7 @@ Be proactive, clear, and helpful in your responses.`,
 
       if (toolUse) {
         messages.push({ role: "assistant", content: response.content });
-        
+       
         const toolResult = await executeToolCall(toolUse.name, toolUse.input);
 
         if (toolUse.name === "auto_trigger_catastrophe") {
@@ -1028,10 +1062,11 @@ Be proactive, clear, and helpful in your responses.`,
         continueLoop = true;
       } else {
         messages.push({ role: "assistant", content: response.content });
+        messages.push({ role: "assistant", content: response.content });
         continueLoop = false;
 
         const textBlock = response.content.find(block => block.type === "text");
-        
+       
         return res.json({
           response: textBlock ? textBlock.text : "Action completed",
           toolsUsed: iterationCount - 1,
@@ -1044,6 +1079,7 @@ Be proactive, clear, and helpful in your responses.`,
       return res.status(500).json({ error: "Max iterations reached" });
     }
   } catch (error) {
+    console.error("AI Agent Error:", error);
     console.error("AI Agent Error:", error);
     return res.status(500).json({ error: error.message });
   }

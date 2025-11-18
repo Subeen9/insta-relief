@@ -5,11 +5,8 @@ import {
   GeoJSON,
   Popup,
 } from "react-leaflet";
-// removed external 'geojson' import that's missing in your deps
-// import { GeoJsonObject } from "geojson";
 import "leaflet/dist/leaflet.css";
 
-// minimal local GeoJSON type to avoid missing @types/geojson dependency
 type GeoJsonObject = Record<string, unknown>;
 
 interface AlertZone {

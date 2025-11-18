@@ -41,6 +41,7 @@ import AdminWalletConnect from "../components/AdminWalletConnect";
 import AIAssistant from "../components/AIAssistant";
 import { sendSol, getProvider } from "../lib/solana";
 import { convertUSDtoSOL } from "../lib/priceService";
+import NoaaMap from "../components/NoaaMap";
 
 interface UserData {
   id: string;
@@ -67,8 +68,9 @@ interface Catastrophe {
   createdBy: string;
 }
 
-const SIMULATE_DISASTER_URL = "https://simulatedisaster-eelyy5nzaa-uc.a.run.app";
-const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
+// ⚠️ IMPORTANT: Ensure this URL is correct for your environment (Deployed or Emulator)
+const SIMULATE_DISASTER_URL =
+  "https://simulatedisaster-eelyy5nzaa-uc.a.run.app";
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<UserData[]>([]);
@@ -84,7 +86,10 @@ export default function AdminDashboard() {
     description: "",
   });
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [processingStatus, setProcessingStatus] = useState<{
     show: boolean;
     current: number;
@@ -105,6 +110,7 @@ export default function AdminDashboard() {
   const [newBalanceInput, setNewBalanceInput] = useState("");
   const navigate = useNavigate();
 
+  const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
   useEffect(() => {
     const checkAdminAndFetchData = async () => {
       const currentUser = auth.currentUser;
@@ -149,7 +155,10 @@ export default function AdminDashboard() {
 
   const fetchCatastrophes = async () => {
     try {
-      const q = query(collection(db, "catastrophes"), orderBy("createdAt", "desc"));
+      const q = query(
+        collection(db, "catastrophes"),
+        orderBy("createdAt", "desc")
+      );
       const catastrophesSnapshot = await getDocs(q);
       const catastrophesData: Catastrophe[] = [];
       catastrophesSnapshot.forEach((doc) => {
@@ -167,8 +176,8 @@ export default function AdminDashboard() {
   };
 
   const handleUpdateBalance = async (userId: string, newBalance: number) => {
-    const user = users.find(u => u.id === userId);
-    
+    const user = users.find((u) => u.id === userId);
+
     if (!user) {
       setMessage({ type: "error", text: "User not found." });
       return;
@@ -182,12 +191,16 @@ export default function AdminDashboard() {
       return;
     }
 
+    // If decreasing balance, just update database
     if (difference < 0) {
       try {
         await updateDoc(doc(db, "users", userId), {
           balance: newBalance,
         });
-        setMessage({ type: "success", text: `Balance decreased by $${Math.abs(difference).toFixed(2)}` });
+        setMessage({
+          type: "success",
+          text: `Balance decreased by $${Math.abs(difference).toFixed(2)}`,
+        });
         await fetchUsers();
       } catch (error) {
         console.error(error);
@@ -196,18 +209,26 @@ export default function AdminDashboard() {
       return;
     }
 
+    // If increasing balance, check wallet and send SOL
     if (!user.walletAddress) {
-      setMessage({ type: "error", text: "User has no connected wallet address. Cannot send SOL." });
+      setMessage({
+        type: "error",
+        text: "User has no connected wallet address. Cannot send SOL.",
+      });
       return;
     }
 
     const provider = getProvider();
     if (!provider || !provider.publicKey) {
-      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+      setMessage({
+        type: "error",
+        text: "Please connect your Phantom wallet first!",
+      });
       return;
     }
 
     try {
+      // Convert USD to SOL
       const conversion = await convertUSDtoSOL(difference, 2);
       const amountSOL = conversion.solAmount;
 
@@ -220,10 +241,12 @@ export default function AdminDashboard() {
       });
     } catch (error: any) {
       console.error(error);
-      setMessage({ type: "error", text: `Failed to prepare payment: ${error.message}` });
+      setMessage({
+        type: "error",
+        text: `Failed to prepare payment: ${error.message}`,
+      });
     }
   };
-
   const handleConfirmPayment = async () => {
     if (!paymentConfirmDialog.user || !paymentConfirmDialog.amountSOL) return;
 
@@ -233,12 +256,15 @@ export default function AdminDashboard() {
       setSubmitting(true);
       setPaymentConfirmDialog({ open: false });
 
-      const { explorerUrl } = await sendSol(
+      const { signature, explorerUrl } = await sendSol(
         user.walletAddress!,
         amountSOL
       );
 
-      console.log(`Sent ${amountSOL.toFixed(4)} SOL to ${user.email}`, explorerUrl);
+      console.log(
+        `Sent ${amountSOL.toFixed(4)} SOL to ${user.email}`,
+        explorerUrl
+      );
 
       await updateDoc(doc(db, "users", user.id), {
         balance: newBalance,
@@ -247,34 +273,38 @@ export default function AdminDashboard() {
         status: "PAID",
       });
 
-      setMessage({ 
-        type: "success", 
-        text: `Successfully sent ${amountSOL.toFixed(4)} SOL ($${amountUSD?.toFixed(2)})! View transaction: ${explorerUrl}` 
+      setMessage({
+        type: "success",
+        text: `Successfully sent ${amountSOL.toFixed(
+          4
+        )} SOL ($${amountUSD?.toFixed(2)})! View transaction: ${explorerUrl}`,
       });
 
       await fetchUsers();
     } catch (error: any) {
       console.error("Payment error:", error);
-      
-      if (error.message?.includes("cancelled") || error.message?.includes("rejected")) {
-        setMessage({ 
-          type: "error", 
-          text: "Transaction cancelled by user. No payment was sent and balance was not updated." 
+
+      if (
+        error.message?.includes("cancelled") ||
+        error.message?.includes("rejected")
+      ) {
+        setMessage({
+          type: "error",
+          text: "Transaction cancelled by user.",
         });
       } else {
-        setMessage({ 
-          type: "error", 
-          text: `Failed to send payment: ${error.message}. Balance was not updated.` 
+        setMessage({
+          type: "error",
+          text: `Failed to send payment: ${error.message}. Balance was not updated.`,
         });
       }
     } finally {
       setSubmitting(false);
     }
   };
-
   const handleAIPreparedCatastrophe = (aiData: any) => {
     console.log("AI prepared catastrophe data:", aiData);
-    
+
     setCatastropheData({
       type: aiData.formData.type,
       location: aiData.formData.location,
@@ -282,23 +312,30 @@ export default function AdminDashboard() {
       amount: aiData.formData.amount,
       description: aiData.formData.description || "",
     });
-    
+
     setOpenCatastropheDialog(true);
-    
+
     setMessage({
       type: "success",
-      text: `AI auto-filled catastrophe form! ${aiData.analysis?.usersWithWallet || 0} users ready. Review and confirm to execute.`,
+      text: `AI auto-filled catastrophe form! ${aiData.analysis?.usersWithWallet || 0
+        } users ready. Review and confirm to execute.`,
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleConfirmTrigger = () => {
-    const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
-    const affectedCount = users.filter(u => zipCodesArray.includes(u.zip) && u.walletAddress).length;
-
+    const zipCodesArray = catastropheData.zipCodes
+      .split(",")
+      .map((zip) => zip.trim());
+    const affectedCount = users.filter(
+      (u) => zipCodesArray.includes(u.zip) && u.walletAddress
+    ).length;
     if (affectedCount === 0) {
-      setMessage({ type: "error", text: "No users will be affected by these ZIP codes." });
+      setMessage({
+        type: "error",
+        text: "No users will be affected by these ZIP codes.",
+      });
       return;
     }
 
@@ -307,52 +344,68 @@ export default function AdminDashboard() {
       `This will send real cryptocurrency to ${affectedCount} user(s).\n\n` +
       `Type: ${catastropheData.type}\n` +
       `Location: ${catastropheData.location}\n` +
-      `Amount per user: $${catastropheData.amount}\n\n` +
+      `Amount per user: $${catastropheData.amount} (${parseFloat(catastropheData.amount) / 100
+      } SOL)\n\n` +
       `Do you want to proceed?`
     );
 
     if (confirmed) {
       handleTriggerCatastrophe();
     }
-  };
+  }; // ========================================================== // 🆕 NEW: Function to call the existing simulateDisaster endpoint // ==========================================================
 
-  const callSimulateDisaster = async (zip: string, eventType: string) => {
-    try {
-      const response = await fetch(
-        `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED&event=${eventType}`
-      ); 
-      if (!response.ok) {
-        console.error("Failed to trigger backend email:", await response.text());
-      } else {
-        console.log(`Confirmation email triggered for ${eventType}.`);
-      }
-    } catch (error) {
-      console.error("Network error triggering simulateDisaster:", error);
+  // AdminDashboard.tsx: New function signature
+const callSimulateDisaster = async (zip: string, eventType: string, amount: string) => {
+  try {
+    const response = await fetch(
+      `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=Extreme&event=${eventType}&amount=${amount}`
+    );
+
+    if (!response.ok) {
+      console.error("❌ Failed to trigger backend email (HTTP Error):", await response.text());
+    } else {
+      console.log(`✅ Confirmation email triggered for ${eventType}.`);
     }
-  };
+  } catch (error) {
+    console.error("❌ Network error triggering simulateDisaster:", error);
+  }
+};
+
+
+  // 3. Update the call inside handleTriggerCatastrophe
+  // Use the type from the catastropheData state
 
   const handleTriggerCatastrophe = async () => {
-    if (!catastropheData.type || !catastropheData.location || !catastropheData.zipCodes || !catastropheData.amount) {
+    if (
+      !catastropheData.type ||
+      !catastropheData.location ||
+      !catastropheData.zipCodes ||
+      !catastropheData.amount
+    ) {
       setMessage({ type: "error", text: "Please fill all required fields." });
       return;
     }
 
     const provider = getProvider();
     if (!provider || !provider.publicKey) {
-      setMessage({ type: "error", text: "Please connect your Phantom wallet first!" });
+      setMessage({
+        type: "error",
+        text: "Please connect your Phantom wallet first!",
+      });
       return;
     }
 
     setSubmitting(true);
     try {
-      const zipCodesArray = catastropheData.zipCodes.split(",").map((zip) => zip.trim());
+      const zipCodesArray = catastropheData.zipCodes
+        .split(",")
+        .map((zip) => zip.trim());
       const amountUSD = parseFloat(catastropheData.amount);
-      const conversion = await convertUSDtoSOL(amountUSD, 2); 
+      const conversion = await convertUSDtoSOL(amountUSD, 2);
       const amountSOL = conversion.solAmount;
       const exchangeRate = conversion.exchangeRate;
       const usersSnapshot = await getDocs(collection(db, "users"));
       const affectedUsers: any[] = [];
-
       usersSnapshot.forEach((userDoc) => {
         const userData = userDoc.data();
         if (zipCodesArray.includes(userData.zip) && userData.walletAddress) {
@@ -364,15 +417,19 @@ export default function AdminDashboard() {
       });
 
       if (affectedUsers.length === 0) {
-        setMessage({ type: "error", text: "No users with wallet addresses found in affected ZIP codes." });
+        setMessage({
+          type: "error",
+          text: "No users with wallet addresses found in affected ZIP codes.",
+        });
         setSubmitting(false);
         return;
       }
 
+      const estimatedTotalSOL = affectedUsers.length * amountSOL;
+
       const payoutResults = [];
       for (let i = 0; i < affectedUsers.length; i++) {
         const user = affectedUsers[i];
-
         setProcessingStatus({
           show: true,
           current: i + 1,
@@ -381,12 +438,13 @@ export default function AdminDashboard() {
         });
 
         try {
+          // 1. Send SOL via Solana network
           const { signature, explorerUrl } = await sendSol(
             user.walletAddress,
             amountSOL
-          );
+          ); // 2. 📧 TRIGGER EMAIL CONFIRMATION *WHILE STATUS IS ACTIVE* // Pass both the user's ZIP and the catastrophe type
 
-          await callSimulateDisaster(user.zip, catastropheData.type);
+          await callSimulateDisaster(user.zip, catastropheData.type, catastropheData.amount); // 3. Update Firestore Status *AFTER* email call
 
           await updateDoc(doc(db, "users", user.id), {
             balance: (user.balance ?? 0) + amountUSD,
@@ -402,10 +460,7 @@ export default function AdminDashboard() {
             signature,
             explorerUrl,
           });
-
-          console.log(`Sent ${amountSOL} SOL to ${user.email}`, explorerUrl);
         } catch (error: any) {
-          console.error(`Failed to send to ${user.email}:`, error);
           payoutResults.push({
             userId: user.id,
             email: user.email,
@@ -430,16 +485,16 @@ export default function AdminDashboard() {
         createdBy: auth.currentUser?.email,
         payoutResults: payoutResults,
         totalAffected: affectedUsers.length,
-        successfulPayouts: payoutResults.filter(r => r.success).length,
-        failedPayouts: payoutResults.filter(r => !r.success).length,
+        successfulPayouts: payoutResults.filter((r) => r.success).length,
+        failedPayouts: payoutResults.filter((r) => !r.success).length,
       });
 
-      const successCount = payoutResults.filter(r => r.success).length;
-      const failCount = payoutResults.filter(r => !r.success).length;
+      const successCount = payoutResults.filter((r) => r.success).length;
+      const failCount = payoutResults.filter((r) => !r.success).length;
 
       setMessage({
         type: successCount > 0 ? "success" : "error",
-        text: `Catastrophe triggered. ${successCount} successful payouts, ${failCount} failed.`,
+        text: `Catastrophe triggered! ${successCount} successful payouts, ${failCount} failed. Check console for details.`,
       });
 
       setOpenCatastropheDialog(false);
@@ -450,12 +505,14 @@ export default function AdminDashboard() {
         amount: "",
         description: "",
       });
-
       await fetchUsers();
       await fetchCatastrophes();
     } catch (error: any) {
       console.error(error);
-      setMessage({ type: "error", text: "Failed to trigger catastrophe: " + error.message });
+      setMessage({
+        type: "error",
+        text: "Failed to trigger catastrophe: " + error.message,
+      });
       setProcessingStatus({ show: false, current: 0, total: 0 });
     } finally {
       setSubmitting(false);
@@ -472,52 +529,67 @@ export default function AdminDashboard() {
           justifyContent: "center",
         }}
       >
-        <CircularProgress />
+        <CircularProgress />     {" "}
       </Container>
     );
   }
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
-        <Typography variant="h4" sx={{ fontWeight: 700, color: "primary.main" }}>
-          Admin Dashboard
+      {" "}
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ mb: 4 }}
+      >
+        {" "}
+        <Typography
+          variant="h4"
+          sx={{ fontWeight: 700, color: "primary.main" }}
+        >
+          Admin Dashboard        {" "}
         </Typography>
+        {" "}
         <Stack direction="row" spacing={2}>
+          {" "}
           <Button
             variant="contained"
             color="error"
             onClick={() => setOpenCatastropheDialog(true)}
             sx={{ fontWeight: 600 }}
           >
-            Trigger Catastrophe
+            Trigger Catastrophe{" "}
           </Button>
+          {" "}
           <Button variant="outlined" onClick={handleLogout}>
-            Logout
+            Logout{" "}
           </Button>
+          {" "}
         </Stack>
+        {" "}
       </Stack>
-
-      <AdminWalletConnect />
-
+      <AdminWalletConnect />{" "}
       {message && (
         <Alert
           severity={message.type}
           onClose={() => setMessage(null)}
           sx={{ mb: 3 }}
         >
-          {message.text}
+          {message.text}{" "}
         </Alert>
       )}
-
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
-        <Tabs value={tabValue} onChange={(_, newValue) => setTabValue(newValue)}>
+        <Tabs
+          value={tabValue}
+          onChange={(_, newValue) => setTabValue(newValue)}
+        >
           <Tab label={`Users (${users.length})`} />
           <Tab label={`Catastrophes (${catastrophes.length})`} />
-          <Tab label="AI Assistant" />
+          <Tab label="🤖 AI Assistant" />
+          <Tab label="Live Map" />
         </Tabs>
       </Box>
-
       {tabValue === 0 && (
         <Card>
           <CardContent>
@@ -528,13 +600,30 @@ export default function AdminDashboard() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Email</strong></TableCell>
-                    <TableCell><strong>Policy ID</strong></TableCell>
-                    <TableCell><strong>ZIP</strong></TableCell>
-                    <TableCell><strong>Balance</strong></TableCell>
-                    <TableCell><strong>Wallet</strong></TableCell>
-                    <TableCell><strong>Actions</strong></TableCell>
+                    <TableCell>
+                      <strong>Name</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Email</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Policy ID</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>ZIP</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Status</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Balance</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Wallet</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Actions</strong>
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -546,12 +635,29 @@ export default function AdminDashboard() {
                       <TableCell>{user.email}</TableCell>
                       <TableCell>{user.policyId}</TableCell>
                       <TableCell>{user.zip}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={user.status}
+                          color={
+                            user.status === "ACTIVE" ? "success" : "warning"
+                          }
+                          size="small"
+                        />
+                      </TableCell>
                       <TableCell>${(user.balance ?? 0).toFixed(2)}</TableCell>
                       <TableCell>
                         {user.walletAddress ? (
-                          <Chip label="Connected" color="success" size="small" />
+                          <Chip
+                            label="Connected"
+                            color="success"
+                            size="small"
+                          />
                         ) : (
-                          <Chip label="No Wallet" color="default" size="small" />
+                          <Chip
+                            label="No Wallet"
+                            color="default"
+                            size="small"
+                          />
                         )}
                       </TableCell>
                       <TableCell>
@@ -574,7 +680,6 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
       )}
-
       {tabValue === 1 && (
         <Card>
           <CardContent>
@@ -585,13 +690,27 @@ export default function AdminDashboard() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell><strong>Type</strong></TableCell>
-                    <TableCell><strong>Location</strong></TableCell>
-                    <TableCell><strong>ZIP Codes</strong></TableCell>
-                    <TableCell><strong>Amount</strong></TableCell>
-                    <TableCell><strong>Description</strong></TableCell>
-                    <TableCell><strong>Created By</strong></TableCell>
-                    <TableCell><strong>Date</strong></TableCell>
+                    <TableCell>
+                      <strong>Type</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Location</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>ZIP Codes</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Amount</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Description</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Created By</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Date</strong>
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -614,14 +733,19 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
       )}
-
       {tabValue === 2 && (
         <AIAssistant
           functionUrl={AI_FUNCTION_URL}
           onCatastrophePrepared={handleAIPreparedCatastrophe}
         />
       )}
-
+      {tabValue == 3 && (
+        <Card>
+          <CardContent>
+            <NoaaMap />
+          </CardContent>
+        </Card>
+      )}
       <Dialog
         open={openCatastropheDialog}
         onClose={() => setOpenCatastropheDialog(false)}
@@ -646,7 +770,10 @@ export default function AdminDashboard() {
               placeholder="e.g., Louisiana Coast"
               value={catastropheData.location}
               onChange={(e) =>
-                setCatastropheData({ ...catastropheData, location: e.target.value })
+                setCatastropheData({
+                  ...catastropheData,
+                  location: e.target.value,
+                })
               }
             />
             <TextField
@@ -656,7 +783,10 @@ export default function AdminDashboard() {
               helperText="Comma-separated list of ZIP codes"
               value={catastropheData.zipCodes}
               onChange={(e) =>
-                setCatastropheData({ ...catastropheData, zipCodes: e.target.value })
+                setCatastropheData({
+                  ...catastropheData,
+                  zipCodes: e.target.value,
+                })
               }
             />
             <TextField
@@ -666,7 +796,10 @@ export default function AdminDashboard() {
               placeholder="e.g., 500"
               value={catastropheData.amount}
               onChange={(e) =>
-                setCatastropheData({ ...catastropheData, amount: e.target.value })
+                setCatastropheData({
+                  ...catastropheData,
+                  amount: e.target.value,
+                })
               }
             />
             <TextField
@@ -677,13 +810,18 @@ export default function AdminDashboard() {
               placeholder="Optional: Additional details about the catastrophe"
               value={catastropheData.description}
               onChange={(e) =>
-                setCatastropheData({ ...catastropheData, description: e.target.value })
+                setCatastropheData({
+                  ...catastropheData,
+                  description: e.target.value,
+                })
               }
             />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenCatastropheDialog(false)}>Cancel</Button>
+          <Button onClick={() => setOpenCatastropheDialog(false)}>
+            Cancel
+          </Button>
           <Button
             onClick={handleConfirmTrigger}
             variant="contained"
@@ -694,7 +832,6 @@ export default function AdminDashboard() {
           </Button>
         </DialogActions>
       </Dialog>
-
       <Dialog open={processingStatus.show} maxWidth="sm" fullWidth>
         <DialogContent>
           <Stack spacing={2} alignItems="center" sx={{ py: 3 }}>
@@ -703,7 +840,8 @@ export default function AdminDashboard() {
               Processing Blockchain Transactions
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sending payment {processingStatus.current} of {processingStatus.total}
+              Sending payment {processingStatus.current} of{" "}
+              {processingStatus.total}
             </Typography>
             {processingStatus.currentUser && (
               <Typography variant="caption" color="text.secondary">
@@ -716,15 +854,14 @@ export default function AdminDashboard() {
           </Stack>
         </DialogContent>
       </Dialog>
-
-      <Dialog 
-        open={balanceInputDialog.open} 
+      <Dialog
+        open={balanceInputDialog.open}
         onClose={() => setBalanceInputDialog({ open: false })}
-        maxWidth="xs" 
+        maxWidth="xs"
         fullWidth
       >
         <DialogTitle>Update Balance</DialogTitle>
-        
+
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
@@ -747,7 +884,7 @@ export default function AdminDashboard() {
               value={newBalanceInput}
               onChange={(e) => setNewBalanceInput(e.target.value)}
               onKeyPress={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === "Enter") {
                   const newBalance = parseFloat(newBalanceInput);
                   if (!isNaN(newBalance) && balanceInputDialog.user) {
                     handleUpdateBalance(balanceInputDialog.user.id, newBalance);
@@ -777,15 +914,14 @@ export default function AdminDashboard() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Dialog 
-        open={paymentConfirmDialog.open} 
+      <Dialog
+        open={paymentConfirmDialog.open}
         onClose={() => !submitting && setPaymentConfirmDialog({ open: false })}
-        maxWidth="sm" 
+        maxWidth="sm"
         fullWidth
       >
         <DialogTitle>Confirm SOL Payment</DialogTitle>
-        
+
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 3 }}>
             This will send real cryptocurrency. This action cannot be undone.
@@ -832,8 +968,8 @@ export default function AdminDashboard() {
         </DialogContent>
 
         <DialogActions>
-          <Button 
-            onClick={() => setPaymentConfirmDialog({ open: false })} 
+          <Button
+            onClick={() => setPaymentConfirmDialog({ open: false })}
             disabled={submitting}
           >
             Cancel
