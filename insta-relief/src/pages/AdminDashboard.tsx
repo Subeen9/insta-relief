@@ -41,7 +41,6 @@ import AdminWalletConnect from "../components/AdminWalletConnect";
 import AIAssistant from "../components/AIAssistant";
 import { sendSol, getProvider } from "../lib/solana";
 import { convertUSDtoSOL } from "../lib/priceService";
-import NoaaMap from "../components/NoaaMap";
 
 interface UserData {
   id: string;
@@ -68,9 +67,8 @@ interface Catastrophe {
   createdBy: string;
 }
 
-// ⚠️ IMPORTANT: Ensure this URL is correct for your environment (Deployed or Emulator)
-const SIMULATE_DISASTER_URL =
-  "https://simulatedisaster-eelyy5nzaa-uc.a.run.app";
+const SIMULATE_DISASTER_URL = "https://simulatedisaster-eelyy5nzaa-uc.a.run.app";
+const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<UserData[]>([]);
@@ -110,7 +108,6 @@ export default function AdminDashboard() {
   const [newBalanceInput, setNewBalanceInput] = useState("");
   const navigate = useNavigate();
 
-  const AI_FUNCTION_URL = "https://adminagent-eelyy5nzaa-uc.a.run.app";
   useEffect(() => {
     const checkAdminAndFetchData = async () => {
       const currentUser = auth.currentUser;
@@ -119,6 +116,12 @@ export default function AdminDashboard() {
         return;
       }
 
+      try {
+        const idTokenResult = await currentUser.getIdTokenResult();
+        if (!idTokenResult.claims.admin) {
+          navigate("/dashboard");
+          return;
+        }
       try {
         const idTokenResult = await currentUser.getIdTokenResult();
         if (!idTokenResult.claims.admin) {
@@ -136,10 +139,34 @@ export default function AdminDashboard() {
         setLoading(false);
       }
     };
+        await fetchUsers();
+        await fetchCatastrophes();
+      } catch (error) {
+        console.error(error);
+        alert("Failed to verify admin status.");
+        navigate("/login");
+      } finally {
+        setLoading(false);
+      }
+    };
 
     checkAdminAndFetchData();
   }, [navigate]);
+    checkAdminAndFetchData();
+  }, [navigate]);
 
+  const fetchUsers = async () => {
+    try {
+      const usersSnapshot = await getDocs(collection(db, "users"));
+      const usersData: UserData[] = [];
+      usersSnapshot.forEach((doc) => {
+        usersData.push({ id: doc.id, ...doc.data() } as UserData);
+      });
+      setUsers(usersData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
   const fetchUsers = async () => {
     try {
       const usersSnapshot = await getDocs(collection(db, "users"));
@@ -174,6 +201,10 @@ export default function AdminDashboard() {
     await signOut(auth);
     navigate("/login");
   };
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/login");
+  };
 
   const handleUpdateBalance = async (userId: string, newBalance: number) => {
     const user = users.find((u) => u.id === userId);
@@ -191,7 +222,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // If decreasing balance, just update database
     if (difference < 0) {
       try {
         await updateDoc(doc(db, "users", userId), {
@@ -209,7 +239,6 @@ export default function AdminDashboard() {
       return;
     }
 
-    // If increasing balance, check wallet and send SOL
     if (!user.walletAddress) {
       setMessage({
         type: "error",
@@ -228,7 +257,6 @@ export default function AdminDashboard() {
     }
 
     try {
-      // Convert USD to SOL
       const conversion = await convertUSDtoSOL(difference, 2);
       const amountSOL = conversion.solAmount;
 
@@ -247,11 +275,16 @@ export default function AdminDashboard() {
       });
     }
   };
+
   const handleConfirmPayment = async () => {
     if (!paymentConfirmDialog.user || !paymentConfirmDialog.amountSOL) return;
 
     const { user, amountUSD, amountSOL, newBalance } = paymentConfirmDialog;
+    const { user, amountUSD, amountSOL, newBalance } = paymentConfirmDialog;
 
+    try {
+      setSubmitting(true);
+      setPaymentConfirmDialog({ open: false });
     try {
       setSubmitting(true);
       setPaymentConfirmDialog({ open: false });
@@ -266,6 +299,12 @@ export default function AdminDashboard() {
         explorerUrl
       );
 
+      await updateDoc(doc(db, "users", user.id), {
+        balance: newBalance,
+        lastPayout: new Date().toISOString(),
+        lastPayoutAmount: amountUSD,
+        status: "PAID",
+      });
       await updateDoc(doc(db, "users", user.id), {
         balance: newBalance,
         lastPayout: new Date().toISOString(),
@@ -352,28 +391,22 @@ export default function AdminDashboard() {
     if (confirmed) {
       handleTriggerCatastrophe();
     }
-  }; // ========================================================== // 🆕 NEW: Function to call the existing simulateDisaster endpoint // ==========================================================
+  };
 
-  // AdminDashboard.tsx: New function signature
-const callSimulateDisaster = async (zip: string, eventType: string, amount: string) => {
-  try {
-    const response = await fetch(
-      `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=Extreme&event=${eventType}&amount=${amount}`
-    );
-
-    if (!response.ok) {
-      console.error("❌ Failed to trigger backend email (HTTP Error):", await response.text());
-    } else {
-      console.log(`✅ Confirmation email triggered for ${eventType}.`);
+  const callSimulateDisaster = async (zip: string, eventType: string) => {
+    try {
+      const response = await fetch(
+        `${SIMULATE_DISASTER_URL}?zip=${zip}&severity=PAYOUT_CONFIRMED&event=${eventType}`
+      ); 
+      if (!response.ok) {
+        console.error("Failed to trigger backend email:", await response.text());
+      } else {
+        console.log(`Confirmation email triggered for ${eventType}.`);
+      }
+    } catch (error) {
+      console.error("Network error triggering simulateDisaster:", error);
     }
-  } catch (error) {
-    console.error("❌ Network error triggering simulateDisaster:", error);
-  }
-};
-
-
-  // 3. Update the call inside handleTriggerCatastrophe
-  // Use the type from the catastropheData state
+  };
 
   const handleTriggerCatastrophe = async () => {
     if (
@@ -438,14 +471,19 @@ const callSimulateDisaster = async (zip: string, eventType: string, amount: stri
         });
 
         try {
-          // 1. Send SOL via Solana network
           const { signature, explorerUrl } = await sendSol(
             user.walletAddress,
             amountSOL
-          ); // 2. 📧 TRIGGER EMAIL CONFIRMATION *WHILE STATUS IS ACTIVE* // Pass both the user's ZIP and the catastrophe type
+          );
 
           await callSimulateDisaster(user.zip, catastropheData.type, catastropheData.amount); // 3. Update Firestore Status *AFTER* email call
 
+          await updateDoc(doc(db, "users", user.id), {
+            balance: (user.balance ?? 0) + amountUSD,
+            status: "PAID",
+            lastPayout: new Date().toISOString(),
+            lastPayoutAmount: amountUSD,
+          });
           await updateDoc(doc(db, "users", user.id), {
             balance: (user.balance ?? 0) + amountUSD,
             status: "PAID",
@@ -461,6 +499,7 @@ const callSimulateDisaster = async (zip: string, eventType: string, amount: stri
             explorerUrl,
           });
         } catch (error: any) {
+          console.error(`Failed to send to ${user.email}:`, error);
           payoutResults.push({
             userId: user.id,
             email: user.email,
@@ -470,6 +509,7 @@ const callSimulateDisaster = async (zip: string, eventType: string, amount: stri
         }
       }
 
+      setProcessingStatus({ show: false, current: 0, total: 0 });
       setProcessingStatus({ show: false, current: 0, total: 0 });
 
       await addDoc(collection(db, "catastrophes"), {
@@ -529,56 +569,44 @@ const callSimulateDisaster = async (zip: string, eventType: string, amount: stri
           justifyContent: "center",
         }}
       >
-        <CircularProgress />     {" "}
+        <CircularProgress />
       </Container>
     );
   }
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      {" "}
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 4 }}
-      >
-        {" "}
-        <Typography
-          variant="h4"
-          sx={{ fontWeight: 700, color: "primary.main" }}
-        >
-          Admin Dashboard        {" "}
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 4 }}>
+        <Typography variant="h4" sx={{ fontWeight: 700, color: "primary.main" }}>
+          Admin Dashboard
         </Typography>
-        {" "}
         <Stack direction="row" spacing={2}>
-          {" "}
           <Button
             variant="contained"
             color="error"
             onClick={() => setOpenCatastropheDialog(true)}
             sx={{ fontWeight: 600 }}
           >
-            Trigger Catastrophe{" "}
+            Trigger Catastrophe
           </Button>
-          {" "}
           <Button variant="outlined" onClick={handleLogout}>
-            Logout{" "}
+            Logout
           </Button>
-          {" "}
         </Stack>
-        {" "}
       </Stack>
-      <AdminWalletConnect />{" "}
+
+      <AdminWalletConnect />
+
       {message && (
         <Alert
           severity={message.type}
           onClose={() => setMessage(null)}
           sx={{ mb: 3 }}
         >
-          {message.text}{" "}
+          {message.text}
         </Alert>
       )}
+
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 3 }}>
         <Tabs
           value={tabValue}

@@ -40,6 +40,7 @@ async function sendEmail(apiKey, to, sender, subject, htmlBody, textBody) {
   }
 
   console.log('SMTP2GO Response:', JSON.stringify(responseData));
+  console.log('SMTP2GO Response:', JSON.stringify(responseData));
   return responseData;
 }
 
@@ -73,6 +74,7 @@ async function handleUserAlert(doc, alert, pay, amountUSD = DEFAULT_PAYOUT) {
 
   console.log(`Preparing email for ${user.email}`);
 
+  let subject = `Weather Alert: ${event} (${severity})`;
   let subject = `Weather Alert: ${event} (${severity})`;
   let html = `
     <h2 style="color:red;">${headline}</h2>
@@ -122,9 +124,11 @@ async function handleZipAlert(zip, alert, pay, amountUSD = DEFAULT_PAYOUT) {
 
   if (users.empty) {
     console.log(`No active users found for ZIP ${zip}`);
+    console.log(`No active users found for ZIP ${zip}`);
     return;
   }
 
+  console.log(`Found ${users.size} user(s) for ZIP ${zip}`);
   console.log(`Found ${users.size} user(s) for ZIP ${zip}`);
 
   const results = await Promise.allSettled(
@@ -134,11 +138,14 @@ async function handleZipAlert(zip, alert, pay, amountUSD = DEFAULT_PAYOUT) {
   results.forEach((result, index) => {
     if (result.status === 'fulfilled') {
       console.log(`User ${index + 1} processed successfully`);
+      console.log(`User ${index + 1} processed successfully`);
     } else {
+      console.error(`User ${index + 1} failed:`, result.reason?.message || result.reason);
       console.error(`User ${index + 1} failed:`, result.reason?.message || result.reason);
     }
   });
 
+  console.log(`ZIP ${zip} processed (${users.size} users)`);
   console.log(`ZIP ${zip} processed (${users.size} users)`);
 }
 
@@ -154,9 +161,11 @@ async function fetchNoaaAlertsHandler() {
  
   if (!data.features || data.features.length === 0) {
     console.log("No active alerts from NOAA");
+    console.log("No active alerts from NOAA");
     return { message: "No active alerts", alertsProcessed: 0 };
   }
 
+  console.log(`Found ${data.features.length} active alerts`);
   console.log(`Found ${data.features.length} active alerts`);
   let processedCount = 0;
 
@@ -165,6 +174,7 @@ async function fetchNoaaAlertsHandler() {
 
     const processed = await db.collection("processedAlerts").doc(alertId).get();
     if (processed.exists) {
+      console.log(`Skipping known alert: ${alertId}`);
       console.log(`Skipping known alert: ${alertId}`);
       continue;
     }
@@ -176,6 +186,7 @@ async function fetchNoaaAlertsHandler() {
     });
 
     const zips = mapAreaToZips(areaDesc);
+    console.log(`Alert ${alertId} mapped to ${zips.length} ZIPs`);
     console.log(`Alert ${alertId} mapped to ${zips.length} ZIPs`);
 
     for (const zip of zips) {
@@ -206,6 +217,23 @@ exports.fetchNoaaAlerts = functions.https.onRequest(async (req, res) => {
     return;
   }
 
+  try {
+    console.log("fetchNoaaAlerts HTTP endpoint called");
+    const result = await fetchNoaaAlertsHandler();
+    res.status(200).json({
+      success: true,
+      ...result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Error in fetchNoaaAlerts:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
   try {
     console.log("fetchNoaaAlerts HTTP endpoint called");
     const result = await fetchNoaaAlertsHandler();
@@ -278,6 +306,16 @@ exports.simulateDisaster = functions.https.onRequest(async (req, res) => {
     });
   }
 });
+  } catch (error) {
+    console.error("Error in simulateDisaster:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 exports.checkUsers = functions.https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
@@ -317,7 +355,23 @@ exports.checkUsers = functions.https.onRequest(async (req, res) => {
       users: userList,
       timestamp: new Date().toISOString()
     });
+    res.status(200).json({
+      success: true,
+      zip: zip,
+      userCount: userList.length,
+      users: userList,
+      timestamp: new Date().toISOString()
+    });
 
+  } catch (error) {
+    console.error("Error in checkUsers:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
   } catch (error) {
     console.error("Error in checkUsers:", error);
     res.status(500).json({
@@ -414,6 +468,7 @@ exports.disaster = functions.https.onCall(async (request, context) => {
       result.push(email);
     } catch (err) {
       console.error(`Failed to process ${email}:`, err);
+      console.error(`Failed to process ${email}:`, err);
       errors.push({
         email,
         error: err.message || "Unknown error",
@@ -507,8 +562,15 @@ exports.sendCatastropheEmail = functions.https.onRequest(async (req, res) => {
 
 // -----------------------------------------------------
 // 5. AI Admin Agent
+// 5. AI Admin Agent
 // -----------------------------------------------------
 
+exports.adminAgent = functions.https.onRequest(
+  {
+    timeoutSeconds: 540,
+    memory: "512MiB",
+  },
+  async (req, res) => {
 exports.adminAgent = functions.https.onRequest(
   {
     timeoutSeconds: 540,
@@ -526,7 +588,12 @@ exports.adminAgent = functions.https.onRequest(
 
   try {
     const { query } = req.body;
+  try {
+    const { query } = req.body;
 
+    if (!query) {
+      return res.status(400).json({ error: "Missing query" });
+    }
     if (!query) {
       return res.status(400).json({ error: "Missing query" });
     }
@@ -536,6 +603,14 @@ exports.adminAgent = functions.https.onRequest(
     });
 
     const tools = [
+      {
+        name: "get_platform_config",
+        description: "Get platform configuration including available catastrophe types, active ZIP codes, and example scenarios.",
+        input_schema: {
+          type: "object",
+          properties: {}
+        }
+      },
       {
         name: "get_users_by_zip",
         description: "Get all users in specific ZIP code(s) with their balance and wallet info.",
@@ -612,8 +687,59 @@ exports.adminAgent = functions.https.onRequest(
 
     async function executeToolCall(toolName, toolInput) {
       console.log(`Executing: ${toolName}`, toolInput);
+      console.log(`Executing: ${toolName}`, toolInput);
 
       switch (toolName) {
+        case "get_platform_config": {
+          const usersSnapshot = await db.collection("users").get();
+          const activeZips = new Set();
+          const zipStats = {};
+          
+          usersSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.zip) {
+              activeZips.add(data.zip);
+              if (!zipStats[data.zip]) {
+                zipStats[data.zip] = { total: 0, withWallet: 0 };
+              }
+              zipStats[data.zip].total++;
+              if (data.walletAddress) {
+                zipStats[data.zip].withWallet++;
+              }
+            }
+          });
+
+          const recentCatastrophes = await db.collection("catastrophes")
+            .orderBy("createdAt", "desc")
+            .limit(20)
+            .get();
+          
+          const usedTypes = new Set();
+          recentCatastrophes.forEach(doc => {
+            const data = doc.data();
+            if (data.type) usedTypes.add(data.type);
+          });
+
+          const catastropheTypes = [
+            { type: "Flood", description: "Flooding event" },
+            { type: "Hurricane", description: "Hurricane storm" },
+            { type: "Earthquake", description: "Seismic activity" },
+            { type: "Wildfire", description: "Forest fire" },
+            { type: "Tornado", description: "Tornado event" },
+            { type: "Winter Storm", description: "Severe winter weather" },
+            { type: "Drought", description: "Extended drought" }
+          ];
+
+          return {
+            catastropheTypes,
+            activeZips: Array.from(activeZips).sort(),
+            zipStats,
+            recentlyUsedTypes: Array.from(usedTypes),
+            totalUsers: usersSnapshot.size,
+            suggestedAmounts: [50, 100, 150, 200, 250, 500]
+          };
+        }
+
         case "get_users_by_zip": {
           const { zipCodes } = toolInput;
           const allUsers = [];
@@ -656,6 +782,10 @@ exports.adminAgent = functions.https.onRequest(
               .where("zip", "==", zip)
               .where("status", "==", "ACTIVE")
               .get();
+            const snapshot = await db.collection("users")
+              .where("zip", "==", zip)
+              .where("status", "==", "ACTIVE")
+              .get();
 
             for (const doc of snapshot.docs) {
               const userData = doc.data();
@@ -688,6 +818,7 @@ exports.adminAgent = functions.https.onRequest(
                   error: error.message
                 });
                 console.error(`Failed to update ${userData.email}:`, error);
+                console.error(`Failed to update ${userData.email}:`, error);
               }
             }
           }
@@ -712,6 +843,7 @@ exports.adminAgent = functions.https.onRequest(
               updates: balanceUpdates,
               errors: errors.length > 0 ? errors : null,
               message: `Updated ${balanceUpdates.length} users' balances in Firestore. Added $${amount} per user.`
+              message: `Updated ${balanceUpdates.length} users' balances in Firestore. Added $${amount} per user.`
             },
 
             catastropheData: {
@@ -731,6 +863,7 @@ exports.adminAgent = functions.https.onRequest(
                 affectedZipCodes: zipCodes,
                 readyToExecute: usersWithWallet.length > 0
               },
+              affectedUsers: usersWithWallet.slice(0, 10)
               affectedUsers: usersWithWallet.slice(0, 10)
             },
 
@@ -805,6 +938,18 @@ exports.adminAgent = functions.https.onRequest(
               createdAt: data.createdAt || new Date().toISOString(),
               createdBy: data.createdBy || "Unknown",
               description: data.description || ""
+              type: data.type || "Unknown",
+              location: data.location || "Unknown",
+              zipCodes: data.zipCodes || [],
+              amount: data.amount || 0,
+              amountSOL: data.amountSOL || 0,
+              totalAffected: data.totalAffected || 0,
+              successfulPayouts: data.successfulPayouts || 0,
+              failedPayouts: data.failedPayouts || 0,
+              emailsSent: data.emailsSent || 0,
+              createdAt: data.createdAt || new Date().toISOString(),
+              createdBy: data.createdBy || "Unknown",
+              description: data.description || ""
             });
           });
 
@@ -841,6 +986,8 @@ exports.adminAgent = functions.https.onRequest(
 
 WORKFLOW:
 When admin wants to trigger a catastrophe:
+WORKFLOW:
+When admin wants to trigger a catastrophe:
 1. Use auto_trigger_catastrophe tool
 2. This automatically updates ALL user balances in Firestore and prepares catastrophe trigger form
 3. Admin reviews and confirms in UI
@@ -851,7 +998,9 @@ Your capabilities:
 - Auto-update user balances in Firestore
 - Auto-fill catastrophe forms
 - Analyze user data and provide recommendations
+- Analyze user data and provide recommendations
 - Review catastrophe history
+- Answer questions about the platform
 
 Platform details:
 - SERVICE AREA: Louisiana, USA (Hammond, Baton Rouge, New Orleans, Lafayette areas)
@@ -913,6 +1062,7 @@ Be proactive, clear, and helpful.`,
         continueLoop = true;
       } else {
         messages.push({ role: "assistant", content: response.content });
+        messages.push({ role: "assistant", content: response.content });
         continueLoop = false;
 
         const textBlock = response.content.find(block => block.type === "text");
@@ -930,6 +1080,8 @@ Be proactive, clear, and helpful.`,
     }
   } catch (error) {
     console.error("AI Agent Error:", error);
+    console.error("AI Agent Error:", error);
     return res.status(500).json({ error: error.message });
   }
 });
+
